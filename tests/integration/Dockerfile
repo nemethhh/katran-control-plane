@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     iptables \
     kmod \
     linux-tools-generic \
+    bpftool \
     && rm -rf /var/lib/apt/lists/*
 
 # Install xdp-tools build dependencies

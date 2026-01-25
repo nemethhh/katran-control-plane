@@ -1,0 +1,175 @@
+# Katran Control Plane - Task List
+
+## Phase 1: Foundation & BPF Infrastructure
+**Goal:** Establish core BPF map management and data structure foundation
+
+- [x] Project structure created with proper packaging
+- [x] All core data structures defined with serialization (`core/types.py`)
+- [x] BpfMap abstract base class implemented (`bpf/map_manager.py`)
+- [x] VipMap wrapper with full CRUD operations (`bpf/maps/vip_map.py`)
+- [x] RealsMap wrapper with index allocation (`bpf/maps/reals_map.py`)
+- [x] ChRingsMap wrapper with ring read/write (`bpf/maps/ch_rings_map.py`)
+- [x] StatsMap wrapper with per-CPU aggregation (`bpf/maps/stats_map.py`)
+- [x] CtlArray wrapper for global settings (`bpf/maps/ctl_array.py`)
+- [x] HcRealsMap wrapper for healthcheck routing (`bpf/maps/hc_reals_map.py`)
+- [x] LruMap wrapper (array of maps) (`bpf/maps/lru_map.py`)
+- [x] Unit tests for all data structure serialization
+- [x] Unit tests for map operations (mocked)
+- [x] Integration tests with actual BPF maps (Docker Compose)
+
+---
+
+## Phase 2: Core Load Balancing Logic
+**Goal:** Implement VIP/real management and Maglev consistent hashing
+
+- [x] MaglevHashRing implementation with weighted distribution (`lb/maglev.py`)
+- [x] Ring rebuild optimization (minimal writes)
+- [x] VipManager with full CRUD operations (`lb/vip_manager.py`)
+- [x] RealManager with backend management (`lb/real_manager.py`)
+- [x] Graceful draining support
+- [x] Thread-safe operations with proper locking
+- [x] Index allocation/deallocation for VIPs and reals (in Phase 1 map_manager.py)
+- [x] Unit tests for Maglev algorithm correctness
+- [x] Unit tests for ring distribution uniformity
+- [x] Unit tests for VIP/real manager operations
+- [x] Integration tests for VIP/real operations (requires Docker environment)
+
+---
+
+## Phase 3: XDP/TC Program Loading
+**Goal:** Load and manage XDP and TC BPF programs
+
+- [ ] XDP program loading via xdp-loader (`bpf/loader.py`)
+- [ ] TC program loading for healthcheck
+- [ ] Program unloading and cleanup
+- [ ] Map pinning setup
+- [ ] Error handling for load failures
+- [ ] Interface validation
+- [ ] Integration tests with actual BPF programs
+
+---
+
+## Phase 4: Statistics & Monitoring
+**Goal:** Implement statistics collection and Prometheus export
+
+- [ ] Per-CPU statistics aggregation (`stats/collector.py`)
+- [ ] Background statistics collection thread
+- [ ] Per-VIP statistics (packets, bytes, connections)
+- [ ] Global statistics aggregation
+- [ ] LRU hit/miss rate calculation
+- [ ] Prometheus metrics export (`stats/prometheus.py`)
+- [ ] HTTP endpoint for metrics scraping
+- [ ] Statistics reset capability
+- [ ] Unit tests for aggregation logic
+- [ ] Integration tests for Prometheus export
+
+---
+
+## Phase 5: Healthcheck Management
+**Goal:** Implement healthcheck routing and integration
+
+- [ ] SO_MARK to backend mapping management (`lb/healthcheck.py`)
+- [ ] Healthcheck destination CRUD operations
+- [ ] Mark allocation strategy
+- [ ] Integration with RealManager for draining
+- [ ] Healthcheck statistics collection
+- [ ] Unit tests for mapping operations
+- [ ] Integration tests with TC program
+
+---
+
+## Phase 6: API Layer
+**Goal:** Implement gRPC and REST APIs
+
+- [ ] Protocol buffer definitions (`api/grpc/katran.proto`)
+- [ ] gRPC service implementation (`api/grpc/service.py`)
+- [ ] REST API using FastAPI (`api/rest/app.py`)
+- [ ] Input validation for all endpoints
+- [ ] Error handling and status codes
+- [ ] API authentication (optional)
+- [ ] API rate limiting (optional)
+- [ ] OpenAPI documentation
+- [ ] Unit tests for API endpoints
+- [ ] Integration tests for full API flow
+
+---
+
+## Phase 7: CLI Tool
+**Goal:** Command-line interface for operations
+
+- [ ] VIP commands (add, remove, list, modify) (`cli/main.py`)
+- [ ] Backend commands (add, remove, drain, list)
+- [ ] Healthcheck commands (add, remove, list)
+- [ ] Statistics commands (show, reset)
+- [ ] Formatted table output
+- [ ] JSON output option
+- [ ] Error handling and user feedback
+- [ ] Shell completion support
+- [ ] Man page generation
+
+---
+
+## Phase 8: Production Hardening
+**Goal:** Production-ready features and reliability
+
+- [ ] Graceful startup sequence
+- [ ] Graceful shutdown with draining
+- [ ] Configuration file support (YAML)
+- [ ] Configuration validation (pydantic)
+- [ ] Hot reload capability
+- [ ] Structured logging (JSON) with structlog
+- [ ] Log levels and filtering
+- [ ] Audit logging for changes
+- [ ] Resource cleanup on failure
+- [ ] Health check endpoint
+- [ ] Readiness probe
+
+---
+
+## Phase 9: Testing & Quality
+**Goal:** Comprehensive testing and quality assurance
+
+- [ ] Unit tests for all core components (>80% coverage)
+- [x] Integration tests with real BPF maps (Docker Compose infrastructure)
+- [ ] End-to-end packet forwarding tests
+- [ ] Performance benchmarks
+- [ ] Load testing
+- [ ] Chaos testing (failure injection)
+- [ ] Code linting (ruff, mypy)
+- [ ] Security scanning
+- [ ] Documentation generation
+
+---
+
+## Phase 10: Documentation & Deployment
+**Goal:** Complete documentation and deployment artifacts
+
+- [ ] README with quick start guide
+- [ ] Architecture documentation
+- [ ] API reference documentation
+- [ ] CLI reference documentation
+- [ ] Configuration reference
+- [ ] Troubleshooting guide
+- [ ] Deployment guide (systemd, containers)
+- [ ] Dockerfile and container images
+- [ ] Helm chart (optional)
+- [ ] Example configurations
+- [ ] Runbook for operations
+
+---
+
+## Summary
+
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| Phase 1: Foundation & BPF Infrastructure | 13 | 13/13 Complete ✅ |
+| Phase 2: Core Load Balancing Logic | 11 | 11/11 Complete ✅ |
+| Phase 3: XDP/TC Program Loading | 7 | Not Started |
+| Phase 4: Statistics & Monitoring | 10 | Not Started |
+| Phase 5: Healthcheck Management | 7 | Not Started |
+| Phase 6: API Layer | 10 | Not Started |
+| Phase 7: CLI Tool | 9 | Not Started |
+| Phase 8: Production Hardening | 11 | Not Started |
+| Phase 9: Testing & Quality | 9 | 1/9 Complete |
+| Phase 10: Documentation & Deployment | 11 | Not Started |
+| **Total** | **97** | |

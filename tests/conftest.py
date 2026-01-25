@@ -201,3 +201,68 @@ def mock_ch_rings_map() -> MockBpfMap:
 def mock_stats_map() -> MockBpfMap:
     """Mock statistics map."""
     return MockBpfMap(key_size=4, value_size=16)
+
+
+# =============================================================================
+# Manager Fixtures (for Phase 2 unit tests)
+# =============================================================================
+
+from unittest.mock import Mock, MagicMock
+from katran.lb.maglev import MaglevHashRing
+from katran.lb.vip_manager import VipManager
+from katran.lb.real_manager import RealManager
+
+
+@pytest.fixture
+def mock_vip_map():
+    """Mock VipMap for unit testing."""
+    mock = MagicMock()
+    mock.add_vip = MagicMock()
+    mock.remove_vip = MagicMock(return_value=True)
+    mock.set = MagicMock()
+    mock.get = MagicMock(return_value=None)
+    mock.items = MagicMock(return_value=[])
+    return mock
+
+
+@pytest.fixture
+def mock_reals_map():
+    """Mock RealsMap for unit testing."""
+    mock = MagicMock()
+    mock.allocate_index = MagicMock(side_effect=lambda: mock.allocate_index.call_count)
+    mock.free_index = MagicMock()
+    mock.set = MagicMock()
+    mock.get = MagicMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
+def mock_ch_rings_map():
+    """Mock ChRingsMap for unit testing."""
+    mock = MagicMock()
+    mock.ring_size = 65537
+    mock.write_ring = MagicMock()
+    mock.read_ring = MagicMock(return_value=[])
+    return mock
+
+
+@pytest.fixture
+def mock_ring_builder():
+    """Mock MaglevHashRing for unit testing."""
+    mock = MagicMock(spec=MaglevHashRing)
+    mock.ring_size = 65537
+    mock.build = MagicMock(return_value=[1] * 65537)
+    mock.rebuild = MagicMock(return_value=([1] * 65537, {}))
+    return mock
+
+
+@pytest.fixture
+def vip_manager(mock_vip_map, mock_ch_rings_map):
+    """VipManager instance with mocked maps."""
+    return VipManager(mock_vip_map, mock_ch_rings_map, max_vips=512)
+
+
+@pytest.fixture
+def real_manager(mock_reals_map, mock_ch_rings_map):
+    """RealManager instance with mocked maps."""
+    return RealManager(mock_reals_map, mock_ch_rings_map, max_reals=4096)

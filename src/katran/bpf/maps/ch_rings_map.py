@@ -126,13 +126,22 @@ class ChRingsMap(BpfMap[int, int]):
     # Ring operations
     # -------------------------------------------------------------------------
 
-    def write_ring(self, vip_num: int, ring: Sequence[int]) -> None:
+    def write_ring(
+        self,
+        vip_num: int,
+        ring: Sequence[int],
+        optimize: bool = True,
+    ) -> int:
         """
         Write complete ring for VIP.
 
         Args:
             vip_num: VIP index number
             ring: List of real_index values (must be ring_size length)
+            optimize: If True, only write positions that changed (default: True)
+
+        Returns:
+            Number of positions written (may be less than ring_size if optimized)
 
         Raises:
             ValueError: If ring length doesn't match ring_size
@@ -144,9 +153,25 @@ class ChRingsMap(BpfMap[int, int]):
 
         base = self.get_ring_base(vip_num)
 
-        with self._lock:
-            for i, real_idx in enumerate(ring):
-                self.set(base + i, real_idx)
+        if not optimize:
+            # Write entire ring unconditionally
+            with self._lock:
+                for i, real_idx in enumerate(ring):
+                    self.set(base + i, real_idx)
+            return self._ring_size
+
+        # Optimized path: only write changed positions
+        old_ring = self.read_ring(vip_num)
+        updates = {}
+
+        for i, (old_val, new_val) in enumerate(zip(old_ring, ring)):
+            if old_val != new_val:
+                updates[i] = new_val
+
+        if updates:
+            self.update_ring_positions(vip_num, updates)
+
+        return len(updates)
 
     def write_ring_batch(self, vip_num: int, ring: Sequence[int]) -> None:
         """
@@ -229,6 +254,52 @@ class ChRingsMap(BpfMap[int, int]):
         with self._lock:
             for position, real_idx in updates.items():
                 self.set(base + position, real_idx)
+
+    def write_ring_incremental(
+        self,
+        vip_num: int,
+        old_ring: Sequence[int],
+        new_ring: Sequence[int],
+    ) -> tuple[int, int]:
+        """
+        Write ring by only updating changed positions.
+
+        This is the most efficient method when you already have the old ring
+        in memory and want to update to a new ring.
+
+        Args:
+            vip_num: VIP index number
+            old_ring: Previous ring contents
+            new_ring: New ring contents
+
+        Returns:
+            Tuple of (positions_changed, positions_written)
+
+        Raises:
+            ValueError: If ring lengths don't match ring_size
+        """
+        if len(old_ring) != self._ring_size:
+            raise ValueError(
+                f"Old ring length {len(old_ring)} doesn't match ring_size {self._ring_size}"
+            )
+        if len(new_ring) != self._ring_size:
+            raise ValueError(
+                f"New ring length {len(new_ring)} doesn't match ring_size {self._ring_size}"
+            )
+
+        # Compute positions that changed
+        updates = {}
+        for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
+            if old_val != new_val:
+                updates[i] = new_val
+
+        positions_changed = len(updates)
+
+        # Write only changed positions
+        if updates:
+            self.update_ring_positions(vip_num, updates)
+
+        return positions_changed, positions_changed
 
     def get_ring_stats(self, vip_num: int) -> dict[int, int]:
         """

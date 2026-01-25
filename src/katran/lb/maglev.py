@@ -1,17 +1,22 @@
 """
-Maglev consistent hashing implementation.
+Maglev consistent hashing implementation (V2).
 
 This module implements Google's Maglev consistent hashing algorithm as used
-in Katran. The implementation matches katran/lib/MaglevHash.cpp exactly,
-including the MurmurHash3 variant used for permutation generation.
+in Katran. The implementation uses the MaglevV2 algorithm from
+katran/lib/MaglevHashV2.cpp which provides proper proportional weighted
+distribution. The MurmurHash3 variant is used for permutation generation.
 
 Reference: http://research.google.com/pubs/pub44824.html (Section 3.4)
 
 Key Properties:
 - Minimal disruption: Adding/removing backends affects minimal keys
-- Uniform distribution: Keys distributed evenly across backends (weighted)
+- Proportional weighted distribution: Backends get ring positions proportional to weight
 - O(1) lookup after ring construction
 - Deterministic: Same inputs always produce same ring
+
+Algorithm Difference (V2 vs V1):
+- V1: After first round with weights, subsequent rounds use equal weights (weight=1)
+- V2: Uses cumulative weight tracking for true proportional distribution
 """
 
 from __future__ import annotations
@@ -176,12 +181,13 @@ def _gen_maglev_permutation(endpoint: Endpoint, ring_size: int) -> tuple[int, in
 
 class MaglevHashRing:
     """
-    Maglev consistent hashing implementation.
+    Maglev consistent hashing implementation (V2 algorithm).
 
-    This class builds a hash ring using Google's Maglev algorithm, which
-    provides minimal disruption when backends are added or removed.
+    This class builds a hash ring using Google's Maglev algorithm with
+    proper proportional weighted distribution. It provides minimal
+    disruption when backends are added or removed.
 
-    The implementation matches katran/lib/MaglevHash.cpp exactly.
+    The implementation matches katran/lib/MaglevHashV2.cpp exactly.
 
     Example:
         >>> ring = MaglevHashRing(ring_size=65537)
@@ -191,6 +197,7 @@ class MaglevHashRing:
         ...     Endpoint(num=3, weight=50, hash=hash_backend("10.0.0.3")),
         ... ]
         >>> result = ring.build(endpoints)
+        >>> # Endpoints get proportional distribution: 40%, 40%, 20%
         >>> backend = ring.lookup(flow_hash)
     """
 
@@ -222,9 +229,10 @@ class MaglevHashRing:
 
     def build(self, endpoints: Sequence[Endpoint]) -> list[int]:
         """
-        Build Maglev ring from endpoints.
+        Build Maglev ring from endpoints using MaglevV2 algorithm.
 
-        This matches katran/lib/MaglevHash.cpp::generateHashRing exactly.
+        This matches katran/lib/MaglevHashV2.cpp::generateHashRing exactly,
+        providing proper proportional weighted distribution.
 
         Args:
             endpoints: List of Endpoint objects with num, weight, and hash
@@ -245,26 +253,34 @@ class MaglevHashRing:
             self._ring = result
             return result
 
-        # Make a mutable copy of endpoints to track weights
-        eps = [Endpoint(num=e.num, weight=e.weight, hash=e.hash) for e in endpoints]
+        # Find maximum weight (used for proportional allocation)
+        max_weight = max(ep.weight for ep in endpoints)
 
         # Generate permutations for all endpoints
         permutations: list[tuple[int, int]] = []
-        for ep in eps:
+        for ep in endpoints:
             offset, skip = _gen_maglev_permutation(ep, self._ring_size)
             permutations.append((offset, skip))
 
         # Track next position to try for each endpoint
-        next_pos = [0] * len(eps)
+        next_pos = [0] * len(endpoints)
+
+        # Cumulative weight for each endpoint (MaglevV2 algorithm)
+        cum_weight = [0] * len(endpoints)
 
         # Fill the ring
         runs = 0
         while True:
-            for i, ep in enumerate(eps):
-                offset, skip = permutations[i]
+            for i, ep in enumerate(endpoints):
+                # Add endpoint's weight to cumulative weight
+                cum_weight[i] += ep.weight
 
-                # Weighted Maglev: each endpoint claims 'weight' positions per round
-                for _ in range(ep.weight):
+                # If cumulative weight >= max_weight, place one entry
+                if cum_weight[i] >= max_weight:
+                    cum_weight[i] -= max_weight
+
+                    offset, skip = permutations[i]
+
                     # Find next empty slot in this endpoint's permutation
                     cur = (offset + next_pos[i] * skip) % self._ring_size
                     while result[cur] >= 0:
@@ -279,9 +295,6 @@ class MaglevHashRing:
                     if runs == self._ring_size:
                         self._ring = result
                         return result
-
-                # Reset weight to 1 after first round (Katran behavior)
-                eps[i].weight = 1
 
         # Should never reach here
         self._ring = result
@@ -313,6 +326,40 @@ class MaglevHashRing:
             Copy of ring as list of endpoint numbers
         """
         return self._ring.copy()
+
+    def rebuild(self, endpoints: Sequence[Endpoint]) -> tuple[list[int], dict[int, tuple[int, int]]]:
+        """
+        Rebuild ring and compute changes from previous ring.
+
+        This is an optimized rebuild that tracks what changed, useful
+        for minimizing writes to BPF maps.
+
+        Args:
+            endpoints: New list of Endpoint objects
+
+        Returns:
+            Tuple of (new_ring, changes) where changes is a dict mapping
+            position to (old_value, new_value) for positions that changed.
+            Returns empty dict for changes if no previous ring exists.
+
+        Example:
+            >>> ring = MaglevHashRing()
+            >>> ring.build([Endpoint(1, 100, hash1)])  # Initial build
+            >>> new_ring, changes = ring.rebuild([Endpoint(1, 100, hash1),
+            ...                                    Endpoint(2, 100, hash2)])
+            >>> # changes contains only positions that changed
+        """
+        old_ring = self._ring.copy() if self.is_built else []
+        new_ring = self.build(endpoints)
+
+        # Compute changes
+        changes: dict[int, tuple[int, int]] = {}
+        if old_ring and len(old_ring) == len(new_ring):
+            for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
+                if old_val != new_val:
+                    changes[i] = (old_val, new_val)
+
+        return new_ring, changes
 
     def get_distribution(self) -> dict[int, int]:
         """
@@ -392,3 +439,40 @@ def compute_ring_changes(
     percentage = (changed / len(old_ring)) * 100 if old_ring else 0.0
 
     return changed, percentage
+
+
+def compute_ring_updates(
+    old_ring: list[int], new_ring: list[int]
+) -> dict[int, int]:
+    """
+    Compute positions that need to be updated when changing rings.
+
+    This is optimized for minimal writes to BPF maps - only positions
+    that actually changed are included.
+
+    Args:
+        old_ring: Previous ring
+        new_ring: New ring
+
+    Returns:
+        Dictionary mapping position to new value for changed positions only
+
+    Raises:
+        ValueError: If rings are not the same size
+
+    Example:
+        >>> old = [1, 1, 2, 2]
+        >>> new = [1, 2, 2, 2]
+        >>> updates = compute_ring_updates(old, new)
+        >>> updates
+        {1: 2}  # Only position 1 changed from 1 to 2
+    """
+    if len(old_ring) != len(new_ring):
+        raise ValueError("Rings must be the same size")
+
+    updates: dict[int, int] = {}
+    for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
+        if old_val != new_val:
+            updates[i] = new_val
+
+    return updates

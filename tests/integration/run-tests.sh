@@ -91,11 +91,32 @@ docker_exec rm -rf "$PIN_PATH" 2>/dev/null || true
 docker_exec mkdir -p "$PIN_PATH"
 docker_exec sysctl -w net.ipv4.conf.all.rp_filter=0 > /dev/null 2>&1 || true
 
-if docker_exec xdp-loader load -m skb -p "$PIN_PATH" "$INTERFACE" "$BPF_PROGRAM" 2>&1; then
+if docker_exec xdp-loader load -m skb "$INTERFACE" "$BPF_PROGRAM" 2>&1; then
     sleep 2
-    MAPS=$(docker_exec ls "$PIN_PATH" 2>&1)
+
+    # Pin BPF maps to expected location
+    # Maps are created by the XDP program but not automatically pinned
+    echo "  Pinning BPF maps..."
+
+    # Find map IDs by name and pin them
+    docker_exec bash -c '
+        for map_name in vip_map reals ch_rings stats ctl_array fallback_cache; do
+            map_id=$(bpftool map list | grep -w "name $map_name" | head -1 | cut -d: -f1)
+            if [ -n "$map_id" ]; then
+                bpftool map pin id "$map_id" '"$PIN_PATH"'/"$map_name" 2>/dev/null || true
+            fi
+        done
+    ' 2>&1 | grep -v "Error: bpf obj already pinned" || true
+
+    MAPS=$(docker_exec ls "$PIN_PATH" 2>&1 | tr '\n' ' ')
     echo "  Pinned maps: $MAPS"
-    print_pass "XDP program loaded"
+
+    if [ -z "$MAPS" ] || [ "$MAPS" = " " ]; then
+        print_fail "No maps were pinned"
+        exit 1
+    fi
+
+    print_pass "XDP program loaded and maps pinned"
 else
     print_fail "Failed to load XDP program"
     exit 1
@@ -106,11 +127,27 @@ print_section "Test 3: Python Integration Tests"
 run_test
 print_test "Running pytest"
 
-PYTEST_OUT=$(docker_exec pytest tests/integration/test_bpf_maps.py -v --tb=short 2>&1) || true
-PASSED=$(echo "$PYTEST_OUT" | grep -c " PASSED") || PASSED=0
-FAILED=$(echo "$PYTEST_OUT" | grep -c " FAILED") || FAILED=0
+# Run with more verbose output
+PYTEST_ARGS="-v --tb=short -s"
+[ "$DEBUG" = "1" ] && PYTEST_ARGS="-vv --tb=long -s"
+
+PYTEST_OUT=$(docker_exec pytest tests/integration/ $PYTEST_ARGS 2>&1) || true
+
+# Parse pytest summary line (e.g., "====== 41 passed in 89.61s ======")
+SUMMARY_LINE=$(echo "$PYTEST_OUT" | grep -E "^=+.*passed.*=+$" | tail -1)
+PASSED=$(echo "$SUMMARY_LINE" | grep -oP '\d+(?= passed)' || echo "0")
+FAILED=$(echo "$SUMMARY_LINE" | grep -oP '\d+(?= failed)' || echo "0")
+
 echo "  Results: $PASSED passed, $FAILED failed"
-[ "$DEBUG" = "1" ] && echo "$PYTEST_OUT"
+
+# Always show output if there are failures
+if [ "$FAILED" -gt 0 ]; then
+    echo -e "${RED}Test failures detected. Output:${NC}"
+    echo "$PYTEST_OUT"
+elif [ "$DEBUG" = "1" ]; then
+    echo "$PYTEST_OUT"
+fi
+
 [ "$FAILED" -eq 0 ] && [ "$PASSED" -gt 0 ] && print_pass "Python tests passed" || print_fail "Python tests failed"
 
 # Test 4: Cleanup

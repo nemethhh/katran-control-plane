@@ -18,6 +18,7 @@ from katran.lb.maglev import (
     Endpoint,
     hash_endpoint_address,
     compute_ring_changes,
+    compute_ring_updates,
     murmur_hash3_x64_64,
     _is_prime,
 )
@@ -395,3 +396,149 @@ class TestLargeRing:
 
         dist = ring.get_distribution()
         assert len(dist) == 100  # All backends present
+
+
+class TestRingRebuildOptimization:
+    """Tests for ring rebuild optimization (minimal writes)."""
+
+    def test_rebuild_returns_changes(self) -> None:
+        """rebuild() returns both new ring and changes from previous."""
+        ring = MaglevHashRing(ring_size=1009)
+
+        # Initial build
+        endpoints1 = [
+            Endpoint(num=1, weight=100, hash=11111),
+            Endpoint(num=2, weight=100, hash=22222),
+        ]
+        ring.build(endpoints1)
+
+        # Rebuild with additional backend
+        endpoints2 = endpoints1 + [Endpoint(num=3, weight=100, hash=33333)]
+        new_ring, changes = ring.rebuild(endpoints2)
+
+        # Should have changes
+        assert len(changes) > 0
+        assert len(changes) < 1009  # Not all positions changed
+        assert len(new_ring) == 1009
+
+        # Changes should be a dict mapping position -> (old, new)
+        for pos, (old_val, new_val) in changes.items():
+            assert 0 <= pos < 1009
+            assert old_val in [1, 2]  # Old backends
+            assert new_val in [1, 2, 3]  # All backends
+            assert old_val != new_val  # Must have actually changed
+
+    def test_rebuild_no_previous_ring(self) -> None:
+        """rebuild() on fresh ring returns empty changes."""
+        ring = MaglevHashRing(ring_size=101)
+        endpoints = [Endpoint(num=1, weight=100, hash=11111)]
+
+        new_ring, changes = ring.rebuild(endpoints)
+
+        assert len(new_ring) == 101
+        assert len(changes) == 0  # No previous ring to compare
+
+    def test_rebuild_preserves_old_ring(self) -> None:
+        """rebuild() correctly identifies unchanged positions."""
+        ring = MaglevHashRing(ring_size=1009)
+
+        # Build initial ring
+        endpoints1 = [
+            Endpoint(num=1, weight=100, hash=11111),
+            Endpoint(num=2, weight=100, hash=22222),
+            Endpoint(num=3, weight=100, hash=33333),
+        ]
+        old_ring = ring.build(endpoints1)
+
+        # Rebuild with one backend removed
+        endpoints2 = endpoints1[:2]  # Remove backend 3
+        new_ring, changes = ring.rebuild(endpoints2)
+
+        # Verify: unchanged positions should be preserved
+        for pos in range(1009):
+            if pos not in changes:
+                # Position didn't change - should be same in both rings
+                assert old_ring[pos] == new_ring[pos]
+            else:
+                # Position changed - should be different
+                old_val, new_val = changes[pos]
+                assert old_ring[pos] == old_val
+                assert new_ring[pos] == new_val
+
+    def test_rebuild_minimal_disruption(self) -> None:
+        """rebuild() with small backend change has minimal disruption."""
+        ring = MaglevHashRing(ring_size=10009)
+
+        # Initial 3 backends
+        endpoints1 = [
+            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}"))
+            for i in range(3)
+        ]
+        ring.build(endpoints1)
+
+        # Add 1 backend (4 total)
+        endpoints2 = endpoints1 + [
+            Endpoint(num=3, weight=100, hash=hash_endpoint_address("10.0.0.3"))
+        ]
+        new_ring, changes = ring.rebuild(endpoints2)
+
+        # Adding 1 of 4 backends should change ~25% of positions
+        pct_changed = (len(changes) / 10009) * 100
+        assert 15 < pct_changed < 35, f"Changed {pct_changed}%, expected 15-35%"
+
+    def test_compute_ring_updates_helper(self) -> None:
+        """compute_ring_updates correctly identifies changed positions."""
+        old = [1, 1, 2, 2, 3, 3]
+        new = [1, 2, 2, 2, 3, 1]  # Positions 1 and 5 changed
+
+        updates = compute_ring_updates(old, new)
+
+        assert len(updates) == 2
+        assert updates[1] == 2  # Position 1: 1 -> 2
+        assert updates[5] == 1  # Position 5: 3 -> 1
+
+    def test_compute_ring_updates_no_changes(self) -> None:
+        """compute_ring_updates returns empty dict when nothing changed."""
+        ring1 = [1, 2, 3, 4, 5]
+        ring2 = [1, 2, 3, 4, 5]
+
+        updates = compute_ring_updates(ring1, ring2)
+
+        assert len(updates) == 0
+
+    def test_compute_ring_updates_all_changed(self) -> None:
+        """compute_ring_updates handles all positions changing."""
+        ring1 = [1, 1, 1, 1]
+        ring2 = [2, 2, 2, 2]
+
+        updates = compute_ring_updates(ring1, ring2)
+
+        assert len(updates) == 4
+        assert all(v == 2 for v in updates.values())
+
+    def test_compute_ring_updates_size_mismatch(self) -> None:
+        """compute_ring_updates raises on size mismatch."""
+        with pytest.raises(ValueError, match="same size"):
+            compute_ring_updates([1, 2, 3], [1, 2])
+
+    def test_rebuild_deterministic(self) -> None:
+        """rebuild() produces same results as separate builds."""
+        endpoints1 = [
+            Endpoint(num=1, weight=100, hash=11111),
+            Endpoint(num=2, weight=100, hash=22222),
+        ]
+        endpoints2 = endpoints1 + [Endpoint(num=3, weight=100, hash=33333)]
+
+        # Method 1: Use rebuild
+        ring1 = MaglevHashRing(ring_size=1009)
+        ring1.build(endpoints1)
+        new_ring_rebuild, _ = ring1.rebuild(endpoints2)
+
+        # Method 2: Separate builds
+        ring2 = MaglevHashRing(ring_size=1009)
+        old_ring_separate = ring2.build(endpoints1)
+        ring3 = MaglevHashRing(ring_size=1009)
+        new_ring_separate = ring3.build(endpoints2)
+
+        # Results should match
+        assert new_ring_rebuild == new_ring_separate

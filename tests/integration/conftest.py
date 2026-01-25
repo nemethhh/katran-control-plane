@@ -155,3 +155,30 @@ def test_real_definition() -> RealDefinition:
         address=IPv4Address("10.0.0.100"),
         flags=RealFlags(0),
     )
+
+
+# =============================================================================
+# Test Reporting Hooks
+# =============================================================================
+
+
+def pytest_runtest_setup(item):
+    """Hook called before each test."""
+    print(f"\n{'='*70}")
+    print(f"SETUP: {item.nodeid}")
+    print(f"{'='*70}")
+
+
+def pytest_runtest_teardown(item, nextitem):
+    """Hook called after each test."""
+    print(f"\n{'='*70}")
+    print(f"TEARDOWN: {item.nodeid}")
+    print(f"{'='*70}")
+
+
+def pytest_runtest_makereport(item, call):
+    """Hook to customize test report."""
+    if call.when == "call":
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
