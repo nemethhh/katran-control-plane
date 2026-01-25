@@ -1,0 +1,31 @@
+# Katran Control Plane Configuration
+# ===================================
+
+# Network interface configuration
+interface: eth0
+xdp_mode: native  # native, generic, or offload
+
+# BPF program paths
+xdp_program: /usr/share/katran/balancer.o
+hc_program: /usr/share/katran/healthchecking_ipip.o
+
+# BPF map pin path
+pin_path: /sys/fs/bpf/katran
+
+# Map size limits
+max_vips: 512
+max_reals: 4096
+lru_size: 1000000
+ring_size: 65537
+
+# Gateway configuration
+default_gateway_mac: "aa:bb:cc:dd:ee:ff"
+
+# API configuration
+grpc_port: 50051
+rest_port: 8080
+prometheus_port: 9100
+
+# Logging
+log_level: INFO
+log_format: json  # json or console
