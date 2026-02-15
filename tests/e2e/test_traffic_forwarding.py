@@ -37,28 +37,34 @@ def _setup_vip(api_client, vip_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PR
 
 def _teardown_vip(api_client, vip_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
     """Remove VIP (ignore 404)."""
-    api_client.delete(f"/api/v1/vips/{vip_addr}/{port}/{proto}")
+    api_client.post("/api/v1/vips/remove", json={
+        "address": vip_addr, "port": port, "protocol": proto,
+    })
 
 
 def _add_backend(api_client, vip_addr, backend_addr, weight=100,
                  port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
-    resp = api_client.post(
-        f"/api/v1/vips/{vip_addr}/{port}/{proto}/backends",
-        json={"address": backend_addr, "weight": weight},
-    )
+    resp = api_client.post("/api/v1/backends/add", json={
+        "vip": {"address": vip_addr, "port": port, "protocol": proto},
+        "address": backend_addr, "weight": weight,
+    })
     assert resp.status_code in (201, 409), f"Unexpected status: {resp.status_code}"
 
 
 def _remove_backend(api_client, vip_addr, backend_addr,
                     port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
-    api_client.delete(f"/api/v1/vips/{vip_addr}/{port}/{proto}/backends/{backend_addr}")
+    api_client.post("/api/v1/backends/remove", json={
+        "vip": {"address": vip_addr, "port": port, "protocol": proto},
+        "address": backend_addr,
+    })
 
 
 def _drain_backend(api_client, vip_addr, backend_addr,
                    port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
-    resp = api_client.put(
-        f"/api/v1/vips/{vip_addr}/{port}/{proto}/backends/{backend_addr}/drain"
-    )
+    resp = api_client.post("/api/v1/backends/drain", json={
+        "vip": {"address": vip_addr, "port": port, "protocol": proto},
+        "address": backend_addr,
+    })
     assert resp.status_code == 200
 
 

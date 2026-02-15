@@ -15,7 +15,7 @@ The control plane writes directly to the BPF maps used by Katran's XDP program, 
 - **Maglev Consistent Hashing** (`lb/maglev.py`): V2 algorithm with true proportional weighted distribution across backends
 - **VIP & Backend Management** (`lb/vip_manager.py`, `lb/real_manager.py`): High-level managers for VIP lifecycle, backend add/remove/drain, and automatic CH ring rebuilds
 - **Configuration** (`core/config.py`): YAML config with Pydantic v2 validation, supporting both flat and nested formats
-- **REST API** (`api/minimal.py`): FastAPI HTTP API for VIP/backend CRUD, health checks, and drain operations
+- **REST API** (`api/rest/`): FastAPI HTTP API for VIP/backend CRUD, health checks, and drain operations
 - **Service Coordinator** (`service.py`): Lifecycle management wiring maps, managers, and API together
 - **Multi-Container E2E Tests**: Full packet-path validation through XDP with IPIP encap/decap and DSR
 
@@ -72,7 +72,7 @@ service.stop()
 
 ```bash
 # Start the API server
-uvicorn katran.api.minimal:create_app --host 0.0.0.0 --port 8080
+uvicorn katran.api.rest:create_app --host 0.0.0.0 --port 8080
 
 # Health check
 curl http://localhost:8080/health
@@ -172,7 +172,9 @@ katran-control-plane/
 │   │   ├── vip_manager.py     # VIP lifecycle management
 │   │   └── real_manager.py    # Backend management + CH ring rebuilds
 │   ├── api/
-│   │   └── minimal.py         # FastAPI REST API
+│   │   └── rest/              # FastAPI REST API
+│   │       ├── __init__.py
+│   │       └── app.py
 │   └── service.py             # Service coordinator (lifecycle, wiring)
 ├── tests/
 │   ├── unit/                  # 218 unit tests (no BPF required)

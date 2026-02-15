@@ -1,4 +1,4 @@
-"""Tests for the minimal HTTP API."""
+"""Tests for the REST API."""
 
 from unittest.mock import MagicMock, PropertyMock
 from ipaddress import IPv4Address
@@ -6,7 +6,7 @@ from ipaddress import IPv4Address
 import pytest
 import httpx
 
-from katran.api.minimal import create_app
+from katran.api.rest import create_app
 from katran.core.constants import Protocol, VipFlags
 from katran.core.exceptions import (
     RealExistsError,
@@ -29,6 +29,9 @@ def _make_vip(address="10.0.0.1", port=80, proto=Protocol.TCP, vip_num=0, reals=
 
 def _make_real(address="10.0.0.100", weight=100, index=1):
     return Real(address=IPv4Address(address), weight=weight, index=index)
+
+
+VIP_PARAMS = {"address": "10.0.0.1", "port": 80, "protocol": "tcp"}
 
 
 @pytest.fixture
@@ -83,7 +86,7 @@ class TestHealth:
 
 
 # ---------------------------------------------------------------------------
-# VIP CRUD
+# VIP endpoints
 # ---------------------------------------------------------------------------
 
 class TestVipEndpoints:
@@ -120,26 +123,33 @@ class TestVipEndpoints:
     async def test_get_vip(self, client, mock_service):
         vip = _make_vip()
         mock_service.vip_manager.get_vip.return_value = vip
-        resp = await client.get("/api/v1/vips/10.0.0.1/80/tcp")
+        resp = await client.get("/api/v1/vips", params=VIP_PARAMS)
         assert resp.status_code == 200
         assert resp.json()["address"] == "10.0.0.1"
 
     @pytest.mark.asyncio
     async def test_get_vip_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = None
-        resp = await client.get("/api/v1/vips/10.0.0.99/80/tcp")
+        resp = await client.get("/api/v1/vips", params={
+            "address": "10.0.0.99", "port": 80, "protocol": "tcp"
+        })
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_vip_partial_params_400(self, client, mock_service):
+        resp = await client.get("/api/v1/vips", params={"address": "10.0.0.1"})
+        assert resp.status_code == 400
 
     @pytest.mark.asyncio
     async def test_remove_vip(self, client, mock_service):
         mock_service.vip_manager.remove_vip.return_value = True
-        resp = await client.delete("/api/v1/vips/10.0.0.1/80/tcp")
+        resp = await client.post("/api/v1/vips/remove", json=VIP_PARAMS)
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_remove_vip_not_found(self, client, mock_service):
         mock_service.vip_manager.remove_vip.return_value = False
-        resp = await client.delete("/api/v1/vips/10.0.0.1/80/tcp")
+        resp = await client.post("/api/v1/vips/remove", json=VIP_PARAMS)
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
@@ -151,7 +161,7 @@ class TestVipEndpoints:
 
 
 # ---------------------------------------------------------------------------
-# Backend CRUD
+# Backend endpoints
 # ---------------------------------------------------------------------------
 
 class TestBackendEndpoints:
@@ -162,10 +172,9 @@ class TestBackendEndpoints:
         real = _make_real()
         mock_service.real_manager.add_real.return_value = real
 
-        resp = await client.post(
-            "/api/v1/vips/10.0.0.1/80/tcp/backends",
-            json={"address": "10.0.0.100", "weight": 100},
-        )
+        resp = await client.post("/api/v1/backends/add", json={
+            "vip": VIP_PARAMS, "address": "10.0.0.100", "weight": 100,
+        })
         assert resp.status_code == 201
         assert resp.json()["address"] == "10.0.0.100"
 
@@ -173,40 +182,45 @@ class TestBackendEndpoints:
     async def test_add_backend_duplicate(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.add_real.side_effect = RealExistsError("10.0.0.100")
-        resp = await client.post(
-            "/api/v1/vips/10.0.0.1/80/tcp/backends",
-            json={"address": "10.0.0.100"},
-        )
+        resp = await client.post("/api/v1/backends/add", json={
+            "vip": VIP_PARAMS, "address": "10.0.0.100",
+        })
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
     async def test_add_backend_vip_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = None
-        resp = await client.post(
-            "/api/v1/vips/10.0.0.99/80/tcp/backends",
-            json={"address": "10.0.0.100"},
-        )
+        resp = await client.post("/api/v1/backends/add", json={
+            "vip": {"address": "10.0.0.99", "port": 80, "protocol": "tcp"},
+            "address": "10.0.0.100",
+        })
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_remove_backend(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.remove_real.return_value = True
-        resp = await client.delete("/api/v1/vips/10.0.0.1/80/tcp/backends/10.0.0.100")
+        resp = await client.post("/api/v1/backends/remove", json={
+            "vip": VIP_PARAMS, "address": "10.0.0.100",
+        })
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_remove_backend_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.remove_real.return_value = False
-        resp = await client.delete("/api/v1/vips/10.0.0.1/80/tcp/backends/10.0.0.100")
+        resp = await client.post("/api/v1/backends/remove", json={
+            "vip": VIP_PARAMS, "address": "10.0.0.100",
+        })
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_drain_backend(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.drain_real.return_value = True
-        resp = await client.put("/api/v1/vips/10.0.0.1/80/tcp/backends/10.0.0.100/drain")
+        resp = await client.post("/api/v1/backends/drain", json={
+            "vip": VIP_PARAMS, "address": "10.0.0.100",
+        })
         assert resp.status_code == 200
         assert resp.json()["status"] == "drained"
 
@@ -214,7 +228,9 @@ class TestBackendEndpoints:
     async def test_drain_backend_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.drain_real.return_value = False
-        resp = await client.put("/api/v1/vips/10.0.0.1/80/tcp/backends/10.0.0.100/drain")
+        resp = await client.post("/api/v1/backends/drain", json={
+            "vip": VIP_PARAMS, "address": "10.0.0.100",
+        })
         assert resp.status_code == 404
 
 

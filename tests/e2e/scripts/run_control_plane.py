@@ -8,7 +8,7 @@ import uvicorn
 
 from katran.core.config import KatranConfig
 from katran.service import KatranService
-from katran.api.minimal import create_app
+from katran.api.rest import create_app
 
 
 def main() -> None:
