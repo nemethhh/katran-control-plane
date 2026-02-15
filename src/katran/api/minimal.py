@@ -14,9 +14,7 @@ from pydantic import BaseModel
 from katran.core.constants import Protocol
 from katran.core.exceptions import (
     RealExistsError,
-    RealNotFoundError,
     VipExistsError,
-    VipNotFoundError,
 )
 
 
@@ -146,10 +144,9 @@ def create_app(service=None) -> FastAPI:
     @app.delete("/api/v1/vips/{addr}/{port}/{proto}", status_code=200)
     def remove_vip(addr: str, port: int, proto: str, svc=Depends(get_service)):
         protocol = _parse_protocol(proto)
-        try:
-            svc.vip_manager.remove_vip(address=addr, port=port, protocol=protocol)
-        except VipNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+        removed = svc.vip_manager.remove_vip(address=addr, port=port, protocol=protocol)
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"VIP not found: {addr}:{port}/{proto}")
         return {"status": "removed"}
 
     # --- Backend CRUD -----------------------------------------------------
@@ -195,10 +192,9 @@ def create_app(service=None) -> FastAPI:
             raise HTTPException(
                 status_code=404, detail=f"VIP not found: {addr}:{port}/{proto}"
             )
-        try:
-            svc.real_manager.remove_real(vip, address=backend_addr)
-        except RealNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+        removed = svc.real_manager.remove_real(vip, address=backend_addr)
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"Backend {backend_addr} not found")
         return {"status": "removed"}
 
     @app.put(
@@ -218,10 +214,9 @@ def create_app(service=None) -> FastAPI:
             raise HTTPException(
                 status_code=404, detail=f"VIP not found: {addr}:{port}/{proto}"
             )
-        try:
-            svc.real_manager.drain_real(vip, address=backend_addr)
-        except RealNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+        drained = svc.real_manager.drain_real(vip, address=backend_addr)
+        if not drained:
+            raise HTTPException(status_code=404, detail=f"Backend {backend_addr} not found")
         return {"status": "drained"}
 
     return app

@@ -206,3 +206,91 @@ class TestNoBackendDrops:
                 _send_request(vip_addr, timeout=3.0)
         finally:
             _teardown_vip(api_client, vip_addr)
+
+
+class TestVipRecreateTraffic:
+    """Verify traffic works after tearing down and recreating a VIP."""
+
+    def test_vip_recreate_traffic_resumes(self, api_client, vip_addr, backend_1_addr):
+        """Teardown VIP+backend, recreate, traffic works again."""
+        _setup_vip(api_client, vip_addr)
+        _add_backend(api_client, vip_addr, backend_1_addr)
+        time.sleep(2)
+
+        try:
+            # Verify traffic works initially
+            body = _send_request(vip_addr)
+            assert body["backend"] == "backend-1"
+
+            # Tear down
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            _teardown_vip(api_client, vip_addr)
+            time.sleep(1)
+
+            # Recreate
+            _setup_vip(api_client, vip_addr)
+            _add_backend(api_client, vip_addr, backend_1_addr)
+            time.sleep(2)
+
+            # Traffic should work again
+            body = _send_request(vip_addr)
+            assert body["backend"] == "backend-1"
+        finally:
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            _teardown_vip(api_client, vip_addr)
+
+
+class TestAllDrainedDrops:
+    """Verify that draining all backends causes traffic to fail."""
+
+    def test_all_backends_drained_drops_traffic(self, api_client, vip_addr,
+                                                 backend_1_addr, backend_2_addr):
+        """Drain all backends -> connection fails."""
+        _setup_vip(api_client, vip_addr)
+        _add_backend(api_client, vip_addr, backend_1_addr)
+        _add_backend(api_client, vip_addr, backend_2_addr)
+        time.sleep(2)
+
+        # Drain both
+        _drain_backend(api_client, vip_addr, backend_1_addr)
+        _drain_backend(api_client, vip_addr, backend_2_addr)
+        time.sleep(2)
+
+        try:
+            with pytest.raises((httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)):
+                _send_request(vip_addr, timeout=3.0)
+        finally:
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            _remove_backend(api_client, vip_addr, backend_2_addr)
+            _teardown_vip(api_client, vip_addr)
+
+
+class TestReaddBackendTraffic:
+    """Verify removing and re-adding a backend restores traffic."""
+
+    def test_readd_backend_after_removal_traffic_resumes(self, api_client, vip_addr,
+                                                          backend_1_addr):
+        """Remove backend, re-add it, traffic still works."""
+        _setup_vip(api_client, vip_addr)
+        _add_backend(api_client, vip_addr, backend_1_addr)
+        time.sleep(2)
+
+        try:
+            # Verify initial traffic
+            body = _send_request(vip_addr)
+            assert body["backend"] == "backend-1"
+
+            # Remove backend
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            time.sleep(1)
+
+            # Re-add same backend
+            _add_backend(api_client, vip_addr, backend_1_addr)
+            time.sleep(2)
+
+            # Traffic should resume
+            body = _send_request(vip_addr)
+            assert body["backend"] == "backend-1"
+        finally:
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            _teardown_vip(api_client, vip_addr)

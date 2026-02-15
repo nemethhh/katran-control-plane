@@ -10,9 +10,7 @@ from katran.api.minimal import create_app
 from katran.core.constants import Protocol, VipFlags
 from katran.core.exceptions import (
     RealExistsError,
-    RealNotFoundError,
     VipExistsError,
-    VipNotFoundError,
 )
 from katran.core.types import Real, Vip, VipKey
 
@@ -140,7 +138,7 @@ class TestVipEndpoints:
 
     @pytest.mark.asyncio
     async def test_remove_vip_not_found(self, client, mock_service):
-        mock_service.vip_manager.remove_vip.side_effect = VipNotFoundError("10.0.0.1", 80, "tcp")
+        mock_service.vip_manager.remove_vip.return_value = False
         resp = await client.delete("/api/v1/vips/10.0.0.1/80/tcp")
         assert resp.status_code == 404
 
@@ -200,7 +198,7 @@ class TestBackendEndpoints:
     @pytest.mark.asyncio
     async def test_remove_backend_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
-        mock_service.real_manager.remove_real.side_effect = RealNotFoundError("10.0.0.100")
+        mock_service.real_manager.remove_real.return_value = False
         resp = await client.delete("/api/v1/vips/10.0.0.1/80/tcp/backends/10.0.0.100")
         assert resp.status_code == 404
 
@@ -215,7 +213,7 @@ class TestBackendEndpoints:
     @pytest.mark.asyncio
     async def test_drain_backend_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
-        mock_service.real_manager.drain_real.side_effect = RealNotFoundError("10.0.0.100")
+        mock_service.real_manager.drain_real.return_value = False
         resp = await client.put("/api/v1/vips/10.0.0.1/80/tcp/backends/10.0.0.100/drain")
         assert resp.status_code == 404
 
