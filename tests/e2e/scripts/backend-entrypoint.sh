@@ -43,6 +43,25 @@ sysctl -w net.ipv4.conf.all.arp_ignore=1 > /dev/null 2>&1
 sysctl -w net.ipv4.conf.all.arp_announce=2 > /dev/null 2>&1
 
 echo "  tunl0 addresses: $(ip addr show tunl0 | grep inet | awk '{print $2}')"
+
+# --- IPv6 tunnel (ip6tnl) ---
+if [ -n "${VIP_ADDR6:-}" ]; then
+    echo ""
+    echo "=== Configuring IPv6 tunnel (ip6tnl) ==="
+    echo "  VIP6 addr: $VIP_ADDR6"
+
+    modprobe ip6_tunnel 2>/dev/null || true
+
+    # Bring up ip6tnl0, disable DAD (duplicate address detection)
+    ip link set ip6tnl0 up 2>/dev/null || true
+    sysctl -w net.ipv6.conf.ip6tnl0.accept_dad=0 > /dev/null 2>&1 || true
+
+    # Add VIP6 address to ip6tnl0 so kernel accepts decapsulated IPv6 packets
+    ip -6 addr add "${VIP_ADDR6}/128" dev ip6tnl0 nodad 2>/dev/null || true
+
+    echo "  ip6tnl0 addresses: $(ip -6 addr show ip6tnl0 | grep inet6 | awk '{print $2}')"
+fi
+
 echo ""
 echo "=== Starting HTTP server on port $HTTP_PORT ==="
 exec python3 /app/scripts/backend-server.py

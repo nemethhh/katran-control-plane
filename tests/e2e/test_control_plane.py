@@ -412,3 +412,208 @@ class TestBackendDetails:
         finally:
             api_client.delete("/api/v1/vips/10.100.5.3/80/tcp")
             api_client.delete("/api/v1/vips/10.100.5.4/80/tcp")
+
+
+# ===========================================================================
+# IPv6 tests
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# VIP lifecycle (IPv6)
+# ---------------------------------------------------------------------------
+
+class TestVipLifecycleV6:
+    def test_vip_crud_v6(self, api_client):
+        """Full create -> list -> get -> delete cycle with IPv6 VIP."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "fc00::1", "port": 80, "protocol": "tcp",
+        })
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["address"] == "fc00::1"
+        assert body["port"] == 80
+
+        try:
+            # List
+            resp = api_client.get("/api/v1/vips")
+            assert resp.status_code == 200
+            vips = resp.json()
+            assert any(v["address"] == "fc00::1" and v["port"] == 80 for v in vips)
+
+            # Get
+            resp = api_client.get("/api/v1/vips/fc00::1/80/tcp")
+            assert resp.status_code == 200
+            assert resp.json()["address"] == "fc00::1"
+        finally:
+            resp = api_client.delete("/api/v1/vips/fc00::1/80/tcp")
+            assert resp.status_code == 200
+
+    def test_duplicate_v6_vip_409(self, api_client):
+        payload = {"address": "fc00::10", "port": 443, "protocol": "tcp"}
+        resp = api_client.post("/api/v1/vips", json=payload)
+        assert resp.status_code == 201
+        try:
+            resp = api_client.post("/api/v1/vips", json=payload)
+            assert resp.status_code == 409
+        finally:
+            api_client.delete("/api/v1/vips/fc00::10/443/tcp")
+
+    def test_get_missing_v6_vip_404(self, api_client):
+        resp = api_client.get("/api/v1/vips/fc00::ffff/9999/tcp")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Backend lifecycle (IPv6)
+# ---------------------------------------------------------------------------
+
+class TestBackendLifecycleV6:
+    def test_backend_crud_v6(self, api_client):
+        """IPv6 backend add/drain/remove on IPv6 VIP."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "fc00::20", "port": 80, "protocol": "tcp",
+        })
+        assert resp.status_code == 201
+
+        try:
+            # Add IPv6 backend
+            resp = api_client.post(
+                "/api/v1/vips/fc00::20/80/tcp/backends",
+                json={"address": "fc00:1::1", "weight": 100},
+            )
+            assert resp.status_code == 201
+            assert resp.json()["address"] == "fc00:1::1"
+
+            # Verify backend appears in VIP detail
+            resp = api_client.get("/api/v1/vips/fc00::20/80/tcp")
+            assert resp.status_code == 200
+            assert len(resp.json()["backends"]) == 1
+
+            # Drain
+            resp = api_client.put(
+                "/api/v1/vips/fc00::20/80/tcp/backends/fc00:1::1/drain"
+            )
+            assert resp.status_code == 200
+
+            # Verify drained (weight=0)
+            resp = api_client.get("/api/v1/vips/fc00::20/80/tcp")
+            backend = resp.json()["backends"][0]
+            assert backend["weight"] == 0
+
+            # Remove backend
+            resp = api_client.delete(
+                "/api/v1/vips/fc00::20/80/tcp/backends/fc00:1::1"
+            )
+            assert resp.status_code == 200
+        finally:
+            api_client.delete("/api/v1/vips/fc00::20/80/tcp")
+
+    def test_backend_on_missing_v6_vip_404(self, api_client):
+        resp = api_client.post(
+            "/api/v1/vips/fc00::ffff/9999/tcp/backends",
+            json={"address": "fc00:1::1", "weight": 100},
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# VIP creation variants (IPv6)
+# ---------------------------------------------------------------------------
+
+class TestVipCreationV6:
+    def test_udp_v6_vip(self, api_client):
+        """Create UDP IPv6 VIP, verify protocol in response and GET."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "fc00::30", "port": 53, "protocol": "udp",
+        })
+        assert resp.status_code == 201
+        try:
+            assert resp.json()["protocol"] == "udp"
+
+            resp = api_client.get("/api/v1/vips/fc00::30/53/udp")
+            assert resp.status_code == 200
+            assert resp.json()["protocol"] == "udp"
+        finally:
+            api_client.delete("/api/v1/vips/fc00::30/53/udp")
+
+    def test_v6_vip_with_flags(self, api_client):
+        """Create IPv6 VIP with flags=1, verify in POST and GET."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "fc00::31", "port": 80, "protocol": "tcp", "flags": 1,
+        })
+        assert resp.status_code == 201
+        try:
+            assert resp.json()["flags"] == 1
+
+            resp = api_client.get("/api/v1/vips/fc00::31/80/tcp")
+            assert resp.status_code == 200
+            assert resp.json()["flags"] == 1
+        finally:
+            api_client.delete("/api/v1/vips/fc00::31/80/tcp")
+
+
+# ---------------------------------------------------------------------------
+# Mixed addressing (IPv4 VIP + IPv6 backend and vice versa)
+# ---------------------------------------------------------------------------
+
+class TestMixedAddressing:
+    def test_v6_vip_v4_backend(self, api_client):
+        """IPv6 VIP with IPv4 backend."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "fc00::40", "port": 80, "protocol": "tcp",
+        })
+        assert resp.status_code == 201
+        try:
+            resp = api_client.post(
+                "/api/v1/vips/fc00::40/80/tcp/backends",
+                json={"address": "10.0.10.1", "weight": 100},
+            )
+            assert resp.status_code == 201
+            assert resp.json()["address"] == "10.0.10.1"
+        finally:
+            api_client.delete("/api/v1/vips/fc00::40/80/tcp")
+
+    def test_v4_vip_v6_backend(self, api_client):
+        """IPv4 VIP with IPv6 backend."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "10.100.6.1", "port": 80, "protocol": "tcp",
+        })
+        assert resp.status_code == 201
+        try:
+            resp = api_client.post(
+                "/api/v1/vips/10.100.6.1/80/tcp/backends",
+                json={"address": "fc00:2::1", "weight": 100},
+            )
+            assert resp.status_code == 201
+            assert resp.json()["address"] == "fc00:2::1"
+        finally:
+            api_client.delete("/api/v1/vips/10.100.6.1/80/tcp")
+
+    def test_mixed_backends_on_same_vip(self, api_client):
+        """IPv4 and IPv6 backends on the same VIP."""
+        resp = api_client.post("/api/v1/vips", json={
+            "address": "fc00::41", "port": 80, "protocol": "tcp",
+        })
+        assert resp.status_code == 201
+        try:
+            resp = api_client.post(
+                "/api/v1/vips/fc00::41/80/tcp/backends",
+                json={"address": "10.0.10.2", "weight": 100},
+            )
+            assert resp.status_code == 201
+
+            resp = api_client.post(
+                "/api/v1/vips/fc00::41/80/tcp/backends",
+                json={"address": "fc00:2::2", "weight": 100},
+            )
+            assert resp.status_code == 201
+
+            # Verify both backends present
+            resp = api_client.get("/api/v1/vips/fc00::41/80/tcp")
+            assert resp.status_code == 200
+            backends = resp.json()["backends"]
+            assert len(backends) == 2
+            addrs = {b["address"] for b in backends}
+            assert addrs == {"10.0.10.2", "fc00:2::2"}
+        finally:
+            api_client.delete("/api/v1/vips/fc00::41/80/tcp")

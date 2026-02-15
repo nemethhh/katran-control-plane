@@ -30,6 +30,10 @@ sysctl -w net.ipv4.conf.all.rp_filter=0 2>/dev/null || true
 sysctl -w net.ipv4.conf.default.rp_filter=0 2>/dev/null || true
 sysctl -w net.ipv4.conf.eth0.rp_filter=0 2>/dev/null || true
 
+# Enable IPv6 forwarding
+sysctl -w net.ipv6.conf.all.forwarding=1 2>/dev/null || true
+sysctl -w net.ipv6.conf.eth0.forwarding=1 2>/dev/null || true
+
 # Clean up any previous state
 xdp-loader unload "$INTERFACE" --all 2>/dev/null || true
 rm -rf "$PIN_PATH" 2>/dev/null || true

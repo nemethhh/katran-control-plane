@@ -48,6 +48,21 @@ def backend_2_addr() -> str:
     return os.environ.get("BACKEND_2_ADDR", "10.200.0.21")
 
 
+@pytest.fixture(scope="session")
+def vip_addr6() -> str:
+    return os.environ.get("KATRAN_VIP6_ADDR", "fd00:200::10")
+
+
+@pytest.fixture(scope="session")
+def backend_1_addr6() -> str:
+    return os.environ.get("BACKEND_1_ADDR6", "fd00:200::20")
+
+
+@pytest.fixture(scope="session")
+def backend_2_addr6() -> str:
+    return os.environ.get("BACKEND_2_ADDR6", "fd00:200::21")
+
+
 # ---------------------------------------------------------------------------
 # HTTP client fixtures
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ services:
     networks:
       katran-e2e-net:
         ipv4_address: 10.200.0.10
+        ipv6_address: "fd00:200::10"
     environment:
       - KATRAN_BPF_PATH=/app/katran-bpfs
       - KATRAN_PIN_PATH=/sys/fs/bpf/katran
@@ -55,10 +56,12 @@ services:
     networks:
       katran-e2e-net:
         ipv4_address: 10.200.0.20
+        ipv6_address: "fd00:200::20"
     environment:
       - BACKEND_NAME=backend-1
       - BACKEND_ADDR=10.200.0.20
       - VIP_ADDR=10.200.0.10
+      - VIP_ADDR6=fd00:200::10
       - HTTP_PORT=80
     entrypoint: ["/bin/bash", "/app/scripts/backend-entrypoint.sh"]
     healthcheck:
@@ -82,10 +85,12 @@ services:
     networks:
       katran-e2e-net:
         ipv4_address: 10.200.0.21
+        ipv6_address: "fd00:200::21"
     environment:
       - BACKEND_NAME=backend-2
       - BACKEND_ADDR=10.200.0.21
       - VIP_ADDR=10.200.0.10
+      - VIP_ADDR6=fd00:200::10
       - HTTP_PORT=80
     entrypoint: ["/bin/bash", "/app/scripts/backend-entrypoint.sh"]
     healthcheck:
@@ -104,12 +109,16 @@ services:
     networks:
       katran-e2e-net:
         ipv4_address: 10.200.0.100
+        ipv6_address: "fd00:200::100"
     environment:
       - KATRAN_E2E=1
       - KATRAN_API_URL=http://katran-lb:8080
       - KATRAN_VIP_ADDR=10.200.0.10
+      - KATRAN_VIP6_ADDR=fd00:200::10
       - BACKEND_1_ADDR=10.200.0.20
+      - BACKEND_1_ADDR6=fd00:200::20
       - BACKEND_2_ADDR=10.200.0.21
+      - BACKEND_2_ADDR6=fd00:200::21
     depends_on:
       katran-lb:
         condition: service_healthy
@@ -122,7 +131,9 @@ services:
 networks:
   katran-e2e-net:
     driver: bridge
+    enable_ipv6: true
     ipam:
       driver: default
       config:
         - subnet: 10.200.0.0/24
+        - subnet: "fd00:200::/64"

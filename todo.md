@@ -74,19 +74,6 @@
 
 ---
 
-## Phase 4: XDP/TC Program Loading
-**Goal:** Load and manage XDP and TC BPF programs
-
-- [ ] XDP program loading via xdp-loader (`bpf/loader.py`)
-- [ ] TC program loading for healthcheck
-- [ ] Program unloading and cleanup
-- [ ] Map pinning setup
-- [ ] Error handling for load failures
-- [ ] Interface validation
-- [ ] Integration tests with actual BPF programs
-
----
-
 ## Phase 5: Statistics & Monitoring
 **Goal:** Implement statistics collection and Prometheus export
 

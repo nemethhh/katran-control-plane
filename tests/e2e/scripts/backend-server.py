@@ -8,6 +8,7 @@ handled each request. Also counts requests for distribution tests.
 
 import json
 import os
+import socket
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -59,9 +60,17 @@ class BackendHandler(BaseHTTPRequestHandler):
         pass
 
 
+class DualStackHTTPServer(HTTPServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
 def main():
-    server = HTTPServer(("0.0.0.0", HTTP_PORT), BackendHandler)
-    print(f"Backend {BACKEND_NAME} listening on 0.0.0.0:{HTTP_PORT}", flush=True)
+    server = DualStackHTTPServer(("::", HTTP_PORT), BackendHandler)
+    print(f"Backend {BACKEND_NAME} listening on [::]:{HTTP_PORT} (dual-stack)", flush=True)
     server.serve_forever()
 
 

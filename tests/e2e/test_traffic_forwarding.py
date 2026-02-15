@@ -64,7 +64,11 @@ def _drain_backend(api_client, vip_addr, backend_addr,
 
 def _send_request(vip_addr, port=TRAFFIC_VIP_PORT, timeout=5.0):
     """Send a single HTTP GET to the VIP and return the parsed JSON body."""
-    resp = httpx.get(f"http://{vip_addr}:{port}/", timeout=timeout)
+    if ":" in vip_addr:
+        url = f"http://[{vip_addr}]:{port}/"
+    else:
+        url = f"http://{vip_addr}:{port}/"
+    resp = httpx.get(url, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -294,3 +298,81 @@ class TestReaddBackendTraffic:
         finally:
             _remove_backend(api_client, vip_addr, backend_1_addr)
             _teardown_vip(api_client, vip_addr)
+
+
+# ===========================================================================
+# IPv6 traffic tests
+# ===========================================================================
+
+class TestBasicForwardingV6:
+    """Verify a single IPv6 backend receives traffic through the XDP path."""
+
+    def test_single_backend_forwarding_v6(self, api_client, vip_addr6, backend_1_addr6):
+        """Add IPv6 VIP + one IPv6 backend -> send HTTP -> verify response."""
+        _setup_vip(api_client, vip_addr6)
+        _add_backend(api_client, vip_addr6, backend_1_addr6)
+
+        time.sleep(2)
+
+        try:
+            body = _send_request(vip_addr6)
+            assert body["backend"] == "backend-1"
+        finally:
+            _remove_backend(api_client, vip_addr6, backend_1_addr6)
+            _teardown_vip(api_client, vip_addr6)
+
+
+class TestMultiBackendDistributionV6:
+    """Verify IPv6 traffic distributes across multiple backends."""
+
+    def test_two_backend_distribution_v6(self, api_client, vip_addr6,
+                                         backend_1_addr6, backend_2_addr6):
+        """Add 2 IPv6 backends -> send N requests -> verify both receive traffic."""
+        _setup_vip(api_client, vip_addr6)
+        _add_backend(api_client, vip_addr6, backend_1_addr6)
+        _add_backend(api_client, vip_addr6, backend_2_addr6)
+
+        time.sleep(2)
+
+        try:
+            results = _send_requests(vip_addr6, count=50)
+            successful = [r for r in results if r is not None]
+            assert len(successful) > 0, "No successful responses"
+
+            backends_seen = Counter(r["backend"] for r in successful)
+            assert len(successful) >= 10, f"Too few successes: {len(successful)}"
+
+            for backend_name in backends_seen:
+                assert backend_name in ("backend-1", "backend-2")
+        finally:
+            _remove_backend(api_client, vip_addr6, backend_1_addr6)
+            _remove_backend(api_client, vip_addr6, backend_2_addr6)
+            _teardown_vip(api_client, vip_addr6)
+
+
+class TestDrainShiftsTrafficV6:
+    """Verify draining an IPv6 backend shifts traffic to remaining backends."""
+
+    def test_drain_stops_traffic_v6(self, api_client, vip_addr6,
+                                    backend_1_addr6, backend_2_addr6):
+        """Drain one IPv6 backend -> verify all traffic goes to the other."""
+        _setup_vip(api_client, vip_addr6)
+        _add_backend(api_client, vip_addr6, backend_1_addr6)
+        _add_backend(api_client, vip_addr6, backend_2_addr6)
+        time.sleep(2)
+
+        # Drain backend-1
+        _drain_backend(api_client, vip_addr6, backend_1_addr6)
+        time.sleep(2)
+
+        try:
+            results = _send_requests(vip_addr6, count=30)
+            successful = [r for r in results if r is not None]
+            assert len(successful) > 0, "No successful responses after drain"
+
+            backends_seen = set(r["backend"] for r in successful)
+            assert "backend-2" in backends_seen, "backend-2 should receive traffic"
+        finally:
+            _remove_backend(api_client, vip_addr6, backend_1_addr6)
+            _remove_backend(api_client, vip_addr6, backend_2_addr6)
+            _teardown_vip(api_client, vip_addr6)
