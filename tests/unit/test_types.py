@@ -71,8 +71,8 @@ class TestVipKey:
         # Bytes 4-15 should be zero (padding for IPv4)
         assert data[4:16] == b"\x00" * 12
 
-        # Port at bytes 16-17 (little-endian)
-        assert int.from_bytes(data[16:18], "little") == 8080
+        # Port at bytes 16-17 (network byte order / big-endian)
+        assert int.from_bytes(data[16:18], "big") == 8080
 
         # Protocol at byte 18
         assert data[18] == Protocol.UDP.value
@@ -90,8 +90,8 @@ class TestVipKey:
         expected_addr = IPv6Address("2001:db8::1").packed
         assert data[0:16] == expected_addr
 
-        # Port at bytes 16-17
-        assert int.from_bytes(data[16:18], "little") == 443
+        # Port at bytes 16-17 (network byte order / big-endian)
+        assert int.from_bytes(data[16:18], "big") == 443
 
         # Protocol at byte 18
         assert data[18] == Protocol.TCP.value
@@ -264,9 +264,9 @@ class TestFlowKey:
         # Dest address (bytes 16-19 for IPv4)
         assert data[16:20] == bytes([10, 0, 0, 1])
 
-        # Ports (bytes 32-35)
-        src_port = int.from_bytes(data[32:34], "little")
-        dst_port = int.from_bytes(data[34:36], "little")
+        # Ports (bytes 32-35, network byte order / big-endian)
+        src_port = int.from_bytes(data[32:34], "big")
+        dst_port = int.from_bytes(data[34:36], "big")
         assert src_port == 12345
         assert dst_port == 80
 

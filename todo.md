@@ -57,7 +57,24 @@
 
 ---
 
-## Phase 3: XDP/TC Program Loading
+## Phase 3: Multi-Container E2E with XDP Traffic Forwarding
+**Goal:** Validate the full packet path: client -> XDP (IPIP encap) -> backend (IPIP decap) -> DSR response
+
+- [x] Make hc_reals_map/lru_map optional in KatranService
+- [x] Multi-container Docker Compose (katran-lb, backend-1, backend-2, test-client)
+- [x] LB Dockerfile and entrypoint (XDP load, map pin, gateway MAC, uvicorn)
+- [x] Backend Dockerfile and entrypoint (IPIP decap, tunl0 VIP, arp_ignore, HTTP server)
+- [x] BPF map pinning using program's map_ids (avoids stale maps on shared bpffs)
+- [x] Port byte order fix (network byte order for VipKey/FlowKey serialization)
+- [x] DSR ARP flux fix (arp_ignore=1, arp_announce=2 on backends)
+- [x] E2E conftest with real HTTP client fixtures and KATRAN_E2E skip guard
+- [x] Control plane API tests over real HTTP (health, VIP CRUD, backend CRUD, errors)
+- [x] Traffic forwarding tests (single backend, multi-backend, drain, remove, no-backend)
+- [x] Orchestrator script (run-e2e.sh) and Makefile targets
+
+---
+
+## Phase 4: XDP/TC Program Loading
 **Goal:** Load and manage XDP and TC BPF programs
 
 - [ ] XDP program loading via xdp-loader (`bpf/loader.py`)
@@ -70,7 +87,7 @@
 
 ---
 
-## Phase 4: Statistics & Monitoring
+## Phase 5: Statistics & Monitoring
 **Goal:** Implement statistics collection and Prometheus export
 
 - [ ] Per-CPU statistics aggregation (`stats/collector.py`)
@@ -86,7 +103,7 @@
 
 ---
 
-## Phase 5: Healthcheck Management
+## Phase 6: Healthcheck Management
 **Goal:** Implement healthcheck routing and integration
 
 - [ ] SO_MARK to backend mapping management (`lb/healthcheck.py`)
@@ -99,7 +116,7 @@
 
 ---
 
-## Phase 6: API Layer
+## Phase 7: API Layer
 **Goal:** Implement gRPC and REST APIs
 
 - [ ] Protocol buffer definitions (`api/grpc/katran.proto`)
@@ -115,7 +132,7 @@
 
 ---
 
-## Phase 7: CLI Tool
+## Phase 8: CLI Tool
 **Goal:** Command-line interface for operations
 
 - [ ] VIP commands (add, remove, list, modify) (`cli/main.py`)
@@ -130,7 +147,7 @@
 
 ---
 
-## Phase 8: Production Hardening
+## Phase 9: Production Hardening
 **Goal:** Advanced production-ready features and reliability
 
 - [ ] Hot configuration reload capability
@@ -147,13 +164,13 @@
 
 ---
 
-## Phase 9: Testing & Quality
+## Phase 10: Testing & Quality
 **Goal:** Comprehensive testing and quality assurance
 
 - [ ] Unit tests for all core components (>80% coverage)
 - [x] Integration tests with real BPF maps (Docker Compose infrastructure)
 - [x] End-to-end tests with control plane service (Phase 2.1)
-- [ ] Packet forwarding verification tests
+- [x] Packet forwarding verification tests (multi-container E2E)
 - [ ] Performance benchmarks
 - [ ] Load testing
 - [ ] Chaos testing (failure injection)
@@ -163,7 +180,7 @@
 
 ---
 
-## Phase 10: Documentation & Deployment
+## Phase 11: Documentation & Deployment
 **Goal:** Complete documentation and deployment artifacts
 
 - [ ] README with quick start guide
@@ -186,13 +203,14 @@
 |-------|-------|--------|
 | Phase 1: Foundation & BPF Infrastructure | 13 | 13/13 Complete ✅ |
 | Phase 2: Core Load Balancing Logic | 11 | 11/11 Complete ✅ |
-| Phase 2.1: Control Plane Service & E2E Testing | 15 | 15/15 Complete |
-| Phase 3: XDP/TC Program Loading | 7 | Not Started |
-| Phase 4: Statistics & Monitoring | 10 | Not Started |
-| Phase 5: Healthcheck Management | 7 | Not Started |
-| Phase 6: API Layer | 10 | Not Started |
-| Phase 7: CLI Tool | 9 | Not Started |
-| Phase 8: Production Hardening | 11 | Not Started |
-| Phase 9: Testing & Quality | 9 | 1/9 Complete |
-| Phase 10: Documentation & Deployment | 11 | Not Started |
-| **Total** | **112** | |
+| Phase 2.1: Control Plane Service & E2E Testing | 15 | 15/15 Complete ✅ |
+| Phase 3: Multi-Container E2E (XDP Traffic) | 11 | 11/11 Complete ✅ |
+| Phase 4: XDP/TC Program Loading | 7 | Not Started |
+| Phase 5: Statistics & Monitoring | 10 | Not Started |
+| Phase 6: Healthcheck Management | 7 | Not Started |
+| Phase 7: API Layer | 10 | Not Started |
+| Phase 8: CLI Tool | 9 | Not Started |
+| Phase 9: Production Hardening | 11 | Not Started |
+| Phase 10: Testing & Quality | 9 | 3/9 Complete |
+| Phase 11: Documentation & Deployment | 11 | Not Started |
+| **Total** | **123** | **53/123** |

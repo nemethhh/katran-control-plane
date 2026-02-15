@@ -40,17 +40,47 @@ echo "Loading XDP program..."
 xdp-loader load -m skb "$INTERFACE" "$BPF_PROGRAM"
 sleep 2
 
-# Pin BPF maps to filesystem
+# Pin BPF maps to filesystem.
+# IMPORTANT: There may be stale maps from previous XDP loads on the shared
+# host bpffs.  We must pin the maps owned by the CURRENT XDP program, not
+# just the first match by name.  Get the program's map_ids and cross-reference.
 echo "Pinning BPF maps..."
-for map_name in vip_map reals ch_rings stats ctl_array fallback_cache; do
-    map_id=$(bpftool map list | grep -w "name $map_name" | head -1 | cut -d: -f1)
-    if [ -n "$map_id" ]; then
-        bpftool map pin id "$map_id" "${PIN_PATH}/${map_name}" 2>/dev/null || true
-        echo "  Pinned: $map_name (id=$map_id)"
-    else
-        echo "  Skip:   $map_name (not found)"
-    fi
-done
+
+PROG_ID=$(bpftool prog list | grep "name balancer_ingress" | tail -1 | cut -d: -f1)
+if [ -n "$PROG_ID" ]; then
+    # Extract map_ids from the program (comma-separated list)
+    PROG_MAP_IDS=$(bpftool prog show id "$PROG_ID" | grep map_ids | sed 's/.*map_ids //' | tr ',' ' ')
+    echo "  XDP program $PROG_ID uses maps: $PROG_MAP_IDS"
+
+    for map_name in vip_map reals ch_rings stats ctl_array fallback_cache; do
+        # Find the map ID that belongs to this program
+        map_id=""
+        for candidate in $(bpftool map list | grep -w "name $map_name" | cut -d: -f1); do
+            for prog_mid in $PROG_MAP_IDS; do
+                if [ "$candidate" = "$prog_mid" ]; then
+                    map_id="$candidate"
+                    break 2
+                fi
+            done
+        done
+
+        if [ -n "$map_id" ]; then
+            bpftool map pin id "$map_id" "${PIN_PATH}/${map_name}" 2>/dev/null || true
+            echo "  Pinned: $map_name (id=$map_id)"
+        else
+            echo "  Skip:   $map_name (not found in program's maps)"
+        fi
+    done
+else
+    echo "  WARNING: balancer_ingress program not found, falling back to name match"
+    for map_name in vip_map reals ch_rings stats ctl_array fallback_cache; do
+        map_id=$(bpftool map list | grep -w "name $map_name" | tail -1 | cut -d: -f1)
+        if [ -n "$map_id" ]; then
+            bpftool map pin id "$map_id" "${PIN_PATH}/${map_name}" 2>/dev/null || true
+            echo "  Pinned: $map_name (id=$map_id)"
+        fi
+    done
+fi
 
 echo "Pinned maps: $(ls "$PIN_PATH" | tr '\n' ' ')"
 

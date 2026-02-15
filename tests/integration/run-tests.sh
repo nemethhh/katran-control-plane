@@ -98,10 +98,19 @@ if docker_exec xdp-loader load -m skb "$INTERFACE" "$BPF_PROGRAM" 2>&1; then
     # Maps are created by the XDP program but not automatically pinned
     echo "  Pinning BPF maps..."
 
-    # Find map IDs by name and pin them
+    # Find map IDs owned by the current XDP program and pin them.
+    # Multiple maps with the same name may exist from previous loads;
+    # we must pin the ones the active program uses.
     docker_exec bash -c '
+        PROG_ID=$(bpftool prog list | grep "name balancer_ingress" | tail -1 | cut -d: -f1)
+        PROG_MAP_IDS=$(bpftool prog show id "$PROG_ID" 2>/dev/null | grep map_ids | sed "s/.*map_ids //" | tr "," " ")
         for map_name in vip_map reals ch_rings stats ctl_array fallback_cache; do
-            map_id=$(bpftool map list | grep -w "name $map_name" | head -1 | cut -d: -f1)
+            map_id=""
+            for candidate in $(bpftool map list | grep -w "name $map_name" | cut -d: -f1); do
+                for mid in $PROG_MAP_IDS; do
+                    [ "$candidate" = "$mid" ] && map_id="$candidate" && break 2
+                done
+            done
             if [ -n "$map_id" ]; then
                 bpftool map pin id "$map_id" '"$PIN_PATH"'/"$map_name" 2>/dev/null || true
             fi

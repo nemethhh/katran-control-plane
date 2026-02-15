@@ -11,7 +11,7 @@ serialization/deserialization to/from BPF map format.
 Memory Layout Notes:
 - IPv4 addresses: 4 bytes (__be32) stored in network byte order
 - IPv6 addresses: 16 bytes (4 x __be32) stored in network byte order
-- Ports: 2 bytes (__u16) stored in host byte order in BPF maps
+- Ports: 2 bytes (__u16) stored in network byte order in BPF maps
 - Protocols: 1 byte (__u8)
 - Statistics: 8 bytes (__u64) per counter
 """
@@ -110,8 +110,9 @@ class VipKey:
                 # IPv4: pad to 16 bytes (address in first 4 bytes)
                 addr_bytes = self.address.packed + b"\x00" * 12
 
-            # Port (2 bytes, little-endian as stored in BPF maps)
-            port_bytes = struct.pack("<H", self.port)
+            # Port (2 bytes, network byte order — the BPF program copies the
+            # raw port from the TCP/UDP header without byte-swap conversion)
+            port_bytes = struct.pack("!H", self.port)
 
             # Protocol (1 byte) + padding (1 byte)
             proto_bytes = struct.pack("BB", self.protocol.value, 0)
@@ -146,8 +147,8 @@ class VipKey:
             else:
                 address = IPv4Address(data[:4])
 
-            # Port (2 bytes, little-endian)
-            port = struct.unpack("<H", data[16:18])[0]
+            # Port (2 bytes, network byte order)
+            port = struct.unpack("!H", data[16:18])[0]
 
             # Protocol (1 byte)
             proto = Protocol(data[18])
@@ -362,8 +363,9 @@ class FlowKey:
             else:
                 dst_bytes = self.dst_addr.packed + b"\x00" * 12
 
-            # Ports (4 bytes) - stored as two u16 in host order
-            ports_bytes = struct.pack("<HH", self.src_port, self.dst_port)
+            # Ports (4 bytes) - stored as two u16 in network byte order
+            # (BPF copies raw port bytes from packet headers without conversion)
+            ports_bytes = struct.pack("!HH", self.src_port, self.dst_port)
 
             # Protocol (1 byte) + padding (3 bytes)
             proto_bytes = struct.pack("BBBB", self.protocol.value, 0, 0, 0)
@@ -392,7 +394,7 @@ class FlowKey:
                 src_addr = IPv4Address(data[:4])
                 dst_addr = IPv4Address(data[16:20])
 
-            src_port, dst_port = struct.unpack("<HH", data[32:36])
+            src_port, dst_port = struct.unpack("!HH", data[32:36])
             proto = Protocol(data[36])
 
             return cls(

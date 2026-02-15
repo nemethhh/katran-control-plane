@@ -36,6 +36,12 @@ sysctl -w net.ipv4.conf.default.rp_filter=0 > /dev/null 2>&1
 sysctl -w net.ipv4.conf.tunl0.rp_filter=0 > /dev/null 2>&1
 sysctl -w net.ipv4.conf.eth0.rp_filter=0 > /dev/null 2>&1
 
+# Prevent ARP flux: don't respond to ARP for VIP address on eth0.
+# Without this, the backend steals ARP entries from the LB since
+# the VIP is on tunl0 but Linux answers ARP on all interfaces by default.
+sysctl -w net.ipv4.conf.all.arp_ignore=1 > /dev/null 2>&1
+sysctl -w net.ipv4.conf.all.arp_announce=2 > /dev/null 2>&1
+
 echo "  tunl0 addresses: $(ip addr show tunl0 | grep inet | awk '{print $2}')"
 echo ""
 echo "=== Starting HTTP server on port $HTTP_PORT ==="
