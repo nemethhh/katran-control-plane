@@ -746,6 +746,1080 @@ class RealManager:
 
 ---
 
+## Phase 2.1: Control Plane Service & E2E Testing Infrastructure
+**Duration:** 2 weeks
+**Goal:** Create runnable control plane service and end-to-end testing framework
+
+**Rationale:** Before continuing with additional features (XDP loading, stats, APIs), we need a way to run and test the control plane as a complete system. This phase bridges unit/integration tests and full system testing.
+
+### 2.1.1 Configuration Management (`core/config.py`)
+
+```python
+# Task: Implement configuration loading and validation
+# Moved from Phase 8 as prerequisite for E2E testing
+
+from pydantic import BaseModel, Field, validator
+from pathlib import Path
+from typing import Optional
+import yaml
+
+class BpfConfig(BaseModel):
+    """BPF program configuration"""
+    xdp_program: Path = Path("/usr/share/katran/balancer.bpf.o")
+    hc_program: Path = Path("/usr/share/katran/healthchecking_ipip.o")
+    pin_path: Path = Path("/sys/fs/bpf/katran")
+
+    @validator('xdp_program', 'hc_program')
+    def programs_must_exist(cls, v):
+        if not v.exists():
+            raise ValueError(f"BPF program not found: {v}")
+        return v
+
+class InterfaceConfig(BaseModel):
+    """Network interface configuration"""
+    name: str
+    xdp_mode: str = "native"  # native, generic, or offload
+
+    @validator('xdp_mode')
+    def valid_xdp_mode(cls, v):
+        if v not in ['native', 'generic', 'offload']:
+            raise ValueError(f"Invalid XDP mode: {v}")
+        return v
+
+class MapConfig(BaseModel):
+    """BPF map size configuration"""
+    max_vips: int = Field(default=512, ge=1, le=4096)
+    max_reals: int = Field(default=4096, ge=1, le=65536)
+    lru_size: int = Field(default=1_000_000, ge=1000)
+    ring_size: int = Field(default=65537)
+
+    @validator('ring_size')
+    def ring_size_must_be_prime(cls, v):
+        # Simple primality check for common values
+        if v not in [65537, 131071, 262147]:
+            raise ValueError(f"Ring size must be prime (recommended: 65537)")
+        return v
+
+class ApiConfig(BaseModel):
+    """API server configuration"""
+    enabled: bool = True
+    host: str = "0.0.0.0"
+    port: int = Field(default=8080, ge=1024, le=65535)
+
+class LogConfig(BaseModel):
+    """Logging configuration"""
+    level: str = "INFO"
+    format: str = "json"  # json or console
+
+    @validator('level')
+    def valid_log_level(cls, v):
+        if v.upper() not in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
+            raise ValueError(f"Invalid log level: {v}")
+        return v.upper()
+
+class KatranConfig(BaseModel):
+    """Complete Katran control plane configuration"""
+
+    interface: InterfaceConfig
+    bpf: BpfConfig = BpfConfig()
+    maps: MapConfig = MapConfig()
+    api: ApiConfig = ApiConfig()
+    logging: LogConfig = LogConfig()
+
+    # Gateway configuration (required for IPIP encapsulation)
+    default_gateway_mac: str = Field(
+        ...,
+        regex=r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
+    )
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> 'KatranConfig':
+        """Load configuration from YAML file"""
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return cls(**data)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'KatranConfig':
+        """Load configuration from dictionary"""
+        return cls(**data)
+
+    def to_yaml(self, path: Path) -> None:
+        """Save configuration to YAML file"""
+        with open(path, 'w') as f:
+            yaml.safe_dump(
+                self.dict(exclude_none=True),
+                f,
+                default_flow_style=False
+            )
+
+# Example configuration file (config/katran.yaml)
+EXAMPLE_CONFIG = """
+interface:
+  name: eth0
+  xdp_mode: native
+
+bpf:
+  xdp_program: /usr/share/katran/balancer.bpf.o
+  hc_program: /usr/share/katran/healthchecking_ipip.o
+  pin_path: /sys/fs/bpf/katran
+
+maps:
+  max_vips: 512
+  max_reals: 4096
+  lru_size: 1000000
+  ring_size: 65537
+
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+
+logging:
+  level: INFO
+  format: json
+
+default_gateway_mac: "00:1b:21:3c:9d:f8"
+"""
+```
+
+### 2.1.2 Basic Logging Setup (`core/logging.py`)
+
+```python
+# Task: Implement structured logging
+# Minimal setup for E2E testing (full implementation in Phase 8)
+
+import logging
+import sys
+from typing import Optional
+
+def setup_logging(level: str = "INFO", log_format: str = "console") -> None:
+    """
+    Configure basic logging for control plane.
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        log_format: Format style (console or json)
+    """
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+
+    # Remove existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Create console handler
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+
+    # Set formatter based on format type
+    if log_format == "json":
+        # Simple JSON formatting for now
+        formatter = logging.Formatter(
+            '{"time":"%(asctime)s","level":"%(levelname)s",'
+            '"logger":"%(name)s","message":"%(message)s"}'
+        )
+    else:
+        # Console formatting
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+
+    # Silence noisy libraries
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+def get_logger(name: str) -> logging.Logger:
+    """Get logger instance for module"""
+    return logging.getLogger(name)
+```
+
+### 2.1.3 Control Plane Service Coordinator (`service.py`)
+
+```python
+# Task: Implement main service coordinator
+
+from pathlib import Path
+from typing import Optional
+import logging
+import signal
+import sys
+
+from katran.core.config import KatranConfig
+from katran.core.logging import setup_logging, get_logger
+from katran.bpf.maps import (
+    VipMap, RealsMap, ChRingsMap, StatsMap,
+    CtlArray, HcRealsMap, LruMap
+)
+from katran.lb.vip_manager import VipManager
+from katran.lb.real_manager import RealManager
+from katran.lb.maglev import MaglevHashRing
+
+log = get_logger(__name__)
+
+
+class KatranService:
+    """
+    Main Katran control plane service coordinator.
+
+    Responsibilities:
+    - Initialize all components
+    - Manage component lifecycle
+    - Handle graceful shutdown
+    - Coordinate between managers and BPF maps
+    """
+
+    def __init__(self, config: KatranConfig):
+        self.config = config
+        self._running = False
+        self._maps_opened = False
+
+        # BPF Maps (will be opened on start)
+        self.vip_map: Optional[VipMap] = None
+        self.reals_map: Optional[RealsMap] = None
+        self.ch_rings_map: Optional[ChRingsMap] = None
+        self.stats_map: Optional[StatsMap] = None
+        self.ctl_array: Optional[CtlArray] = None
+        self.hc_reals_map: Optional[HcRealsMap] = None
+        self.lru_map: Optional[LruMap] = None
+
+        # Managers (will be initialized on start)
+        self.vip_manager: Optional[VipManager] = None
+        self.real_manager: Optional[RealManager] = None
+
+        # Ring builder
+        self.ring_builder = MaglevHashRing(ring_size=config.maps.ring_size)
+
+        log.info("Katran service initialized", extra={
+            'interface': config.interface.name,
+            'xdp_mode': config.interface.xdp_mode,
+            'max_vips': config.maps.max_vips,
+            'max_reals': config.maps.max_reals
+        })
+
+    def _open_maps(self) -> None:
+        """Open all BPF maps"""
+        log.info("Opening BPF maps", extra={'pin_path': str(self.config.bpf.pin_path)})
+
+        pin_path = str(self.config.bpf.pin_path)
+
+        self.vip_map = VipMap(pin_path)
+        self.reals_map = RealsMap(pin_path, max_entries=self.config.maps.max_reals)
+        self.ch_rings_map = ChRingsMap(
+            pin_path,
+            ring_size=self.config.maps.ring_size,
+            max_vips=self.config.maps.max_vips
+        )
+        self.stats_map = StatsMap(pin_path, max_entries=self.config.maps.max_vips)
+        self.ctl_array = CtlArray(pin_path)
+        self.hc_reals_map = HcRealsMap(pin_path)
+        self.lru_map = LruMap(pin_path)
+
+        # Open all maps
+        self.vip_map.open()
+        self.reals_map.open()
+        self.ch_rings_map.open()
+        self.stats_map.open()
+        self.ctl_array.open()
+        self.hc_reals_map.open()
+        self.lru_map.open()
+
+        self._maps_opened = True
+        log.info("BPF maps opened successfully")
+
+    def _close_maps(self) -> None:
+        """Close all BPF maps"""
+        if not self._maps_opened:
+            return
+
+        log.info("Closing BPF maps")
+
+        for map_obj in [
+            self.vip_map, self.reals_map, self.ch_rings_map,
+            self.stats_map, self.ctl_array, self.hc_reals_map, self.lru_map
+        ]:
+            if map_obj:
+                try:
+                    map_obj.close()
+                except Exception as e:
+                    log.error(f"Error closing map: {e}")
+
+        self._maps_opened = False
+        log.info("BPF maps closed")
+
+    def _initialize_managers(self) -> None:
+        """Initialize VIP and Real managers"""
+        log.info("Initializing managers")
+
+        self.vip_manager = VipManager(
+            vip_map=self.vip_map,
+            ch_rings_map=self.ch_rings_map,
+            stats_map=self.stats_map,
+            max_vips=self.config.maps.max_vips
+        )
+
+        self.real_manager = RealManager(
+            reals_map=self.reals_map,
+            ch_rings_map=self.ch_rings_map,
+            vip_manager=self.vip_manager,
+            ring_builder=self.ring_builder
+        )
+
+        log.info("Managers initialized")
+
+    def start(self) -> None:
+        """Start the control plane service"""
+        if self._running:
+            raise RuntimeError("Service already running")
+
+        log.info("Starting Katran control plane service")
+
+        try:
+            # Open BPF maps
+            self._open_maps()
+
+            # Initialize managers
+            self._initialize_managers()
+
+            # TODO: Phase 3 will add XDP program loading here
+            # TODO: Phase 4 will add statistics collector here
+            # TODO: Phase 6 will add API servers here
+
+            self._running = True
+            log.info("Katran control plane service started successfully")
+
+        except Exception as e:
+            log.error(f"Failed to start service: {e}")
+            self._cleanup()
+            raise
+
+    def stop(self) -> None:
+        """Stop the control plane service"""
+        if not self._running:
+            return
+
+        log.info("Stopping Katran control plane service")
+
+        # TODO: Phase 4 - Stop statistics collector
+        # TODO: Phase 6 - Stop API servers
+        # TODO: Phase 3 - Unload XDP programs
+
+        self._cleanup()
+        self._running = False
+
+        log.info("Katran control plane service stopped")
+
+    def _cleanup(self) -> None:
+        """Clean up resources"""
+        self._close_maps()
+
+    def is_running(self) -> bool:
+        """Check if service is running"""
+        return self._running
+
+
+def main(config_path: Optional[Path] = None) -> int:
+    """
+    Main entry point for Katran control plane.
+
+    Args:
+        config_path: Path to configuration file
+
+    Returns:
+        Exit code
+    """
+    # Load configuration
+    if config_path is None:
+        config_path = Path("/etc/katran/katran.yaml")
+
+    try:
+        config = KatranConfig.from_yaml(config_path)
+    except Exception as e:
+        print(f"Failed to load configuration: {e}", file=sys.stderr)
+        return 1
+
+    # Setup logging
+    setup_logging(
+        level=config.logging.level,
+        log_format=config.logging.format
+    )
+
+    log = get_logger(__name__)
+    log.info("Katran control plane starting", extra={
+        'config_file': str(config_path)
+    })
+
+    # Create service
+    service = KatranService(config)
+
+    # Setup signal handlers
+    def signal_handler(signum, frame):
+        log.info(f"Received signal {signum}, shutting down")
+        service.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    try:
+        # Start service
+        service.start()
+
+        # Keep running until signal received
+        log.info("Service running, press Ctrl+C to stop")
+        signal.pause()
+
+    except Exception as e:
+        log.error(f"Service error: {e}", exc_info=True)
+        return 1
+    finally:
+        service.stop()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+### 2.1.4 Minimal HTTP API for E2E Testing (`api/minimal.py`)
+
+```python
+# Task: Implement minimal API for E2E testing
+# Full API implementation in Phase 6
+
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel
+from typing import Optional, List
+import logging
+
+from katran.service import KatranService
+from katran.core.types import Protocol, VipFlags
+from katran.core.constants import PROTOCOL_MAP
+
+log = logging.getLogger(__name__)
+
+app = FastAPI(
+    title="Katran Control Plane (Minimal E2E API)",
+    version="0.1.0"
+)
+
+# Global service instance (set by create_app)
+service: Optional[KatranService] = None
+
+
+class AddVipRequest(BaseModel):
+    address: str
+    port: int
+    protocol: str  # "tcp" or "udp"
+    flags: List[str] = []
+
+class AddRealRequest(BaseModel):
+    address: str
+    weight: int = 100
+
+class VipResponse(BaseModel):
+    address: str
+    port: int
+    protocol: str
+    vip_num: int
+    flags: List[str]
+    backends: List[dict]
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    if service is None or not service.is_running():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service not running"
+        )
+    return {"status": "healthy", "service": "katran-control-plane"}
+
+
+@app.post("/api/v1/vips", response_model=VipResponse)
+async def add_vip(request: AddVipRequest):
+    """Add new VIP"""
+    if service is None:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+
+    try:
+        # Parse protocol
+        protocol = PROTOCOL_MAP.get(request.protocol.lower())
+        if protocol is None:
+            raise HTTPException(status_code=400, detail=f"Invalid protocol: {request.protocol}")
+
+        # Parse flags
+        flags = VipFlags.NONE
+        for flag_name in request.flags:
+            try:
+                flags |= VipFlags[flag_name.upper()]
+            except KeyError:
+                raise HTTPException(status_code=400, detail=f"Invalid flag: {flag_name}")
+
+        # Add VIP
+        vip = service.vip_manager.add_vip(
+            address=request.address,
+            port=request.port,
+            protocol=protocol,
+            flags=flags
+        )
+
+        return VipResponse(
+            address=str(vip.key.address),
+            port=vip.key.port,
+            protocol=vip.key.protocol.name.lower(),
+            vip_num=vip.vip_num,
+            flags=[f.name.lower() for f in VipFlags if f in vip.flags],
+            backends=[]
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error(f"Error adding VIP: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/vips/{address}/{port}/{protocol}")
+async def remove_vip(address: str, port: int, protocol: str):
+    """Remove VIP"""
+    if service is None:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+
+    try:
+        proto = PROTOCOL_MAP.get(protocol.lower())
+        if proto is None:
+            raise HTTPException(status_code=400, detail=f"Invalid protocol: {protocol}")
+
+        success = service.vip_manager.remove_vip(address, port, proto)
+        if not success:
+            raise HTTPException(status_code=404, detail="VIP not found")
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error removing VIP: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/vips")
+async def list_vips():
+    """List all VIPs"""
+    if service is None:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+
+    try:
+        vips = service.vip_manager.list_vips()
+        return {
+            "vips": [
+                {
+                    "address": str(vip.key.address),
+                    "port": vip.key.port,
+                    "protocol": vip.key.protocol.name.lower(),
+                    "vip_num": vip.vip_num,
+                    "flags": [f.name.lower() for f in VipFlags if f in vip.flags],
+                    "backends": [
+                        {
+                            "address": str(real.address),
+                            "weight": real.weight,
+                            "index": real.index
+                        }
+                        for real in vip.reals
+                    ]
+                }
+                for vip in vips
+            ]
+        }
+    except Exception as e:
+        log.error(f"Error listing VIPs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/vips/{address}/{port}/{protocol}/backends")
+async def add_backend(address: str, port: int, protocol: str, request: AddRealRequest):
+    """Add backend to VIP"""
+    if service is None:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+
+    try:
+        proto = PROTOCOL_MAP.get(protocol.lower())
+        if proto is None:
+            raise HTTPException(status_code=400, detail=f"Invalid protocol: {protocol}")
+
+        vip = service.vip_manager.get_vip(address, port, proto)
+        if vip is None:
+            raise HTTPException(status_code=404, detail="VIP not found")
+
+        real = service.real_manager.add_real(
+            vip=vip,
+            address=request.address,
+            weight=request.weight
+        )
+
+        return {
+            "success": True,
+            "backend": {
+                "address": str(real.address),
+                "weight": real.weight,
+                "index": real.index
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error adding backend: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/vips/{vip_address}/{vip_port}/{protocol}/backends/{backend_address}")
+async def remove_backend(vip_address: str, vip_port: int, protocol: str, backend_address: str):
+    """Remove backend from VIP"""
+    if service is None:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+
+    try:
+        proto = PROTOCOL_MAP.get(protocol.lower())
+        if proto is None:
+            raise HTTPException(status_code=400, detail=f"Invalid protocol: {protocol}")
+
+        vip = service.vip_manager.get_vip(vip_address, vip_port, proto)
+        if vip is None:
+            raise HTTPException(status_code=404, detail="VIP not found")
+
+        success = service.real_manager.remove_real(vip, backend_address)
+        if not success:
+            raise HTTPException(status_code=404, detail="Backend not found")
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error removing backend: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/v1/vips/{vip_address}/{vip_port}/{protocol}/backends/{backend_address}/drain")
+async def drain_backend(vip_address: str, vip_port: int, protocol: str, backend_address: str):
+    """Drain backend (set weight to 0)"""
+    if service is None:
+        raise HTTPException(status_code=500, detail="Service not initialized")
+
+    try:
+        proto = PROTOCOL_MAP.get(protocol.lower())
+        if proto is None:
+            raise HTTPException(status_code=400, detail=f"Invalid protocol: {protocol}")
+
+        vip = service.vip_manager.get_vip(vip_address, vip_port, proto)
+        if vip is None:
+            raise HTTPException(status_code=404, detail="VIP not found")
+
+        success = service.real_manager.drain_real(vip, backend_address)
+        if not success:
+            raise HTTPException(status_code=404, detail="Backend not found")
+
+        return {"success": True, "message": "Backend drained"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error draining backend: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def create_app(katran_service: KatranService) -> FastAPI:
+    """
+    Create FastAPI app with service instance.
+
+    Args:
+        katran_service: Running KatranService instance
+
+    Returns:
+        FastAPI application
+    """
+    global service
+    service = katran_service
+    return app
+```
+
+### 2.1.5 E2E Test Infrastructure
+
+**Docker Compose for E2E** (`tests/e2e/docker-compose.yml`):
+
+```yaml
+version: '3.8'
+
+services:
+  katran-e2e:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - BPF
+    volumes:
+      - /sys/fs/bpf:/sys/fs/bpf:rw
+      - ../../src:/app/src:ro
+      - ../../tests:/app/tests:ro
+      - ./test-config.yaml:/etc/katran/katran.yaml:ro
+    networks:
+      - katran-test
+    command: >
+      sh -c "
+        set -e
+        echo 'Loading XDP program...'
+        xdp-loader load -m skb -s xdp eth0 /app/katran-bpfs/balancer.bpf.o
+        echo 'XDP loaded, maps pinned to /sys/fs/bpf/katran'
+        ls -la /sys/fs/bpf/katran/
+        echo 'Running E2E tests...'
+        pytest -v /app/tests/e2e/
+      "
+
+networks:
+  katran-test:
+    driver: bridge
+```
+
+**E2E Test Dockerfile** (`tests/e2e/Dockerfile`):
+
+```dockerfile
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    python3.11 python3-pip \
+    xdp-tools \
+    iproute2 \
+    iputils-ping \
+    tcpdump \
+    bpftool \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY pyproject.toml ./
+RUN pip3 install -e ".[dev]"
+
+# Copy BPF programs
+COPY katran-bpfs/ /app/katran-bpfs/
+
+# Copy source and tests
+COPY src/ /app/src/
+COPY tests/ /app/tests/
+
+CMD ["/bin/bash"]
+```
+
+**E2E Test Configuration** (`tests/e2e/test-config.yaml`):
+
+```yaml
+interface:
+  name: eth0
+  xdp_mode: skb
+
+bpf:
+  xdp_program: /app/katran-bpfs/balancer.bpf.o
+  hc_program: /app/katran-bpfs/healthchecking_ipip.o
+  pin_path: /sys/fs/bpf/katran
+
+maps:
+  max_vips: 128
+  max_reals: 1024
+  lru_size: 100000
+  ring_size: 65537
+
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+
+logging:
+  level: DEBUG
+  format: console
+
+default_gateway_mac: "02:42:ac:14:00:02"
+```
+
+**E2E Test Fixtures** (`tests/e2e/conftest.py`):
+
+```python
+import pytest
+import asyncio
+import threading
+import time
+from pathlib import Path
+from httpx import AsyncClient
+import uvicorn
+
+from katran.core.config import KatranConfig
+from katran.core.logging import setup_logging
+from katran.service import KatranService
+from katran.api.minimal import create_app
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create event loop for async tests"""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(scope="session")
+def katran_config():
+    """Load E2E test configuration"""
+    config_path = Path("/etc/katran/katran.yaml")
+    return KatranConfig.from_yaml(config_path)
+
+
+@pytest.fixture(scope="session")
+def katran_service(katran_config):
+    """Start Katran service for E2E tests"""
+    # Setup logging
+    setup_logging(
+        level=katran_config.logging.level,
+        log_format=katran_config.logging.format
+    )
+
+    # Create and start service
+    service = KatranService(katran_config)
+    service.start()
+
+    yield service
+
+    # Cleanup
+    service.stop()
+
+
+@pytest.fixture(scope="session")
+def api_server(katran_service, katran_config):
+    """Start API server in background thread"""
+    app = create_app(katran_service)
+
+    config = uvicorn.Config(
+        app,
+        host=katran_config.api.host,
+        port=katran_config.api.port,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+
+    # Run server in thread
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Wait for server to start
+    time.sleep(2)
+
+    yield server
+
+    # Cleanup (server will stop when thread ends)
+
+
+@pytest.fixture
+async def api_client(api_server, katran_config):
+    """HTTP client for API testing"""
+    base_url = f"http://{katran_config.api.host}:{katran_config.api.port}"
+    async with AsyncClient(base_url=base_url) as client:
+        yield client
+```
+
+**E2E Test Cases** (`tests/e2e/test_control_plane.py`):
+
+```python
+import pytest
+from ipaddress import IPv4Address
+
+from katran.core.types import Protocol, VipKey
+
+
+@pytest.mark.asyncio
+async def test_health_check(api_client):
+    """Test health check endpoint"""
+    response = await api_client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_add_and_remove_vip(api_client):
+    """Test VIP lifecycle through API"""
+    # Add VIP
+    response = await api_client.post("/api/v1/vips", json={
+        "address": "10.200.1.1",
+        "port": 80,
+        "protocol": "tcp",
+        "flags": []
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["address"] == "10.200.1.1"
+    assert data["port"] == 80
+    assert data["protocol"] == "tcp"
+    assert "vip_num" in data
+
+    # List VIPs
+    response = await api_client.get("/api/v1/vips")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["vips"]) >= 1
+
+    # Remove VIP
+    response = await api_client.delete("/api/v1/vips/10.200.1.1/80/tcp")
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_add_backend_to_vip(api_client):
+    """Test adding backend through API"""
+    # Add VIP
+    await api_client.post("/api/v1/vips", json={
+        "address": "10.200.1.2",
+        "port": 443,
+        "protocol": "tcp"
+    })
+
+    # Add backend
+    response = await api_client.post(
+        "/api/v1/vips/10.200.1.2/443/tcp/backends",
+        json={"address": "10.0.0.100", "weight": 100}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["backend"]["address"] == "10.0.0.100"
+    assert data["backend"]["weight"] == 100
+
+    # Verify in VIP list
+    response = await api_client.get("/api/v1/vips")
+    vips = response.json()["vips"]
+    test_vip = next(v for v in vips if v["address"] == "10.200.1.2")
+    assert len(test_vip["backends"]) == 1
+    assert test_vip["backends"][0]["address"] == "10.0.0.100"
+
+    # Cleanup
+    await api_client.delete("/api/v1/vips/10.200.1.2/443/tcp")
+
+
+@pytest.mark.asyncio
+async def test_drain_backend(api_client):
+    """Test backend draining"""
+    # Setup VIP and backend
+    await api_client.post("/api/v1/vips", json={
+        "address": "10.200.1.3",
+        "port": 8080,
+        "protocol": "tcp"
+    })
+    await api_client.post(
+        "/api/v1/vips/10.200.1.3/8080/tcp/backends",
+        json={"address": "10.0.0.101", "weight": 100}
+    )
+
+    # Drain backend
+    response = await api_client.put(
+        "/api/v1/vips/10.200.1.3/8080/tcp/backends/10.0.0.101/drain"
+    )
+    assert response.status_code == 200
+
+    # Verify weight is 0
+    response = await api_client.get("/api/v1/vips")
+    vips = response.json()["vips"]
+    test_vip = next(v for v in vips if v["address"] == "10.200.1.3")
+    backend = test_vip["backends"][0]
+    assert backend["weight"] == 0
+
+    # Cleanup
+    await api_client.delete("/api/v1/vips/10.200.1.3/8080/tcp")
+
+
+def test_service_initialization(katran_service):
+    """Test service is properly initialized"""
+    assert katran_service.is_running()
+    assert katran_service.vip_manager is not None
+    assert katran_service.real_manager is not None
+    assert katran_service.vip_map is not None
+
+
+def test_direct_vip_manager_operations(katran_service):
+    """Test VIP manager operations directly"""
+    vip = katran_service.vip_manager.add_vip(
+        address="10.200.2.1",
+        port=80,
+        protocol=Protocol.TCP
+    )
+
+    assert vip.vip_num >= 0
+    assert vip.key.address == IPv4Address("10.200.2.1")
+    assert vip.key.port == 80
+
+    # Verify in BPF map
+    key = VipKey(IPv4Address("10.200.2.1"), 80, Protocol.TCP)
+    meta = katran_service.vip_map.get(key)
+    assert meta is not None
+    assert meta.vip_num == vip.vip_num
+
+    # Cleanup
+    katran_service.vip_manager.remove_vip("10.200.2.1", 80, Protocol.TCP)
+```
+
+**E2E Test Runner** (`tests/e2e/run-tests.sh`):
+
+```bash
+#!/bin/bash
+set -e
+
+# E2E test runner for Katran control plane
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cd "$PROJECT_ROOT"
+
+echo "Building E2E test environment..."
+docker-compose -f tests/e2e/docker-compose.yml build
+
+echo "Running E2E tests..."
+docker-compose -f tests/e2e/docker-compose.yml up --abort-on-container-exit --exit-code-from katran-e2e
+
+echo "Cleaning up..."
+docker-compose -f tests/e2e/docker-compose.yml down -v
+
+echo "E2E tests completed successfully!"
+```
+
+### 2.1.6 Phase 2.1 Deliverables Checklist
+
+- [ ] Configuration file support (YAML) with pydantic validation
+- [ ] Configuration loading and validation tests
+- [ ] Example configuration files
+- [ ] Basic structured logging setup
+- [ ] Control plane service coordinator (KatranService)
+- [ ] Service lifecycle management (start/stop)
+- [ ] Component initialization and wiring
+- [ ] Minimal HTTP API with FastAPI
+- [ ] Health check endpoint
+- [ ] VIP management API endpoints (add/remove/list)
+- [ ] Backend management API endpoints (add/remove/drain)
+- [ ] E2E test infrastructure (Docker + Docker Compose)
+- [ ] E2E test fixtures with service startup
+- [ ] E2E API tests with real HTTP requests
+- [ ] E2E tests with direct manager access
+
+---
+
 ## Phase 3: XDP/TC Program Loading
 **Duration:** 1-2 weeks
 **Goal:** Load and manage XDP and TC BPF programs
@@ -1472,152 +2546,210 @@ if __name__ == '__main__':
 **Duration:** 2-3 weeks
 **Goal:** Production-ready features and reliability
 
-### 8.1 Graceful Operations
+**Note:** Basic configuration and logging were implemented in Phase 2.1. This phase focuses on advanced production features.
+
+### 8.1 Hot Configuration Reload
 
 ```python
-# Task: Implement graceful shutdown and hot reload
+# Task: Implement hot reload capability
+# Extends basic service from Phase 2.1
+
+from typing import Set
+from dataclasses import dataclass
+
+@dataclass
+class ConfigChange:
+    """Represents a configuration change"""
+    type: str  # 'vip_added', 'vip_removed', 'backend_changed', etc.
+    old_value: any
+    new_value: any
+
+class ConfigDiffer:
+    """Computes differences between configurations"""
+
+    def diff(self, old_config: KatranConfig, new_config: KatranConfig) -> list[ConfigChange]:
+        """
+        Compute configuration changes.
+
+        Returns list of atomic changes that can be applied.
+        """
+        changes = []
+
+        # Check API configuration changes
+        if old_config.api.port != new_config.api.port:
+            changes.append(ConfigChange(
+                type='api_port_changed',
+                old_value=old_config.api.port,
+                new_value=new_config.api.port
+            ))
+
+        # Check logging level changes
+        if old_config.logging.level != new_config.logging.level:
+            changes.append(ConfigChange(
+                type='log_level_changed',
+                old_value=old_config.logging.level,
+                new_value=new_config.logging.level
+            ))
+
+        # Add more configuration comparisons...
+
+        return changes
+
 
 class KatranService:
-    """Main service coordinator"""
-    
-    def __init__(self, config: Config):
-        self._config = config
-        self._running = False
-        self._shutdown_event = threading.Event()
-        
-        # Initialize components
-        self._loader = BpfLoader(...)
-        self._vip_manager = VipManager(...)
-        self._real_manager = RealManager(...)
-        self._stats_collector = StatsCollector(...)
-    
-    def start(self) -> None:
-        """Start all service components"""
-        # Load BPF programs
-        self._loader.load_all()
-        
-        # Open BPF maps
-        self._open_maps()
-        
-        # Start statistics collection
-        self._stats_collector.start()
-        
-        # Start API servers
-        self._start_apis()
-        
-        self._running = True
-        
-        # Register signal handlers
-        signal.signal(signal.SIGTERM, self._handle_shutdown)
-        signal.signal(signal.SIGINT, self._handle_shutdown)
-    
-    def _handle_shutdown(self, signum, frame):
-        """Handle shutdown signal"""
-        logging.info("Received shutdown signal, starting graceful shutdown")
-        self._shutdown_event.set()
-    
-    def shutdown(self, timeout: float = 30.0) -> None:
-        """Graceful shutdown"""
-        logging.info("Starting graceful shutdown")
-        
-        # Stop accepting new connections
-        # (signal to external load balancer)
-        
-        # Wait for drain period
-        logging.info(f"Draining connections for {timeout}s")
-        time.sleep(timeout)
-        
-        # Stop statistics collection
-        self._stats_collector.stop()
-        
-        # Stop API servers
-        self._stop_apis()
-        
-        # Close BPF maps
-        self._close_maps()
-        
-        # Unload BPF programs
-        self._loader.unload_all()
-        
-        logging.info("Shutdown complete")
-    
-    def reload_config(self, new_config: Config) -> None:
-        """Hot reload configuration"""
-        # Diff current vs new config
-        # Apply changes atomically
-        pass
+    """Extended service with hot reload"""
+
+    def reload_config(self, new_config_path: Path) -> bool:
+        """
+        Hot reload configuration without downtime.
+
+        Args:
+            new_config_path: Path to new configuration file
+
+        Returns:
+            True if reload successful, False otherwise
+        """
+        log.info("Starting configuration reload", config_path=str(new_config_path))
+
+        try:
+            # Load new configuration
+            new_config = KatranConfig.from_yaml(new_config_path)
+
+            # Validate new configuration
+            new_config.validate()
+
+            # Compute differences
+            differ = ConfigDiffer()
+            changes = differ.diff(self.config, new_config)
+
+            if not changes:
+                log.info("No configuration changes detected")
+                return True
+
+            log.info(f"Applying {len(changes)} configuration changes")
+
+            # Apply changes atomically
+            for change in changes:
+                self._apply_config_change(change)
+
+            # Update current config
+            self.config = new_config
+
+            log.info("Configuration reload completed successfully")
+            return True
+
+        except Exception as e:
+            log.error("Configuration reload failed", error=str(e), exc_info=True)
+            return False
+
+    def _apply_config_change(self, change: ConfigChange) -> None:
+        """Apply single configuration change"""
+        if change.type == 'log_level_changed':
+            # Update log level dynamically
+            logging.getLogger().setLevel(change.new_value)
+            log.info(f"Log level changed to {change.new_value}")
+
+        elif change.type == 'api_port_changed':
+            # Would require API server restart
+            log.warning("API port change requires service restart")
+
+        # Add more change handlers...
 ```
 
-### 8.2 Configuration Management
+### 8.2 Advanced Structured Logging with Audit Trail
 
 ```python
-# Task: Implement configuration loading and validation
-
-from pydantic import BaseSettings, validator
-import yaml
-
-class KatranConfig(BaseSettings):
-    """Katran configuration with validation"""
-    
-    # Interface configuration
-    interface: str
-    xdp_mode: str = "native"
-    
-    # BPF program paths
-    xdp_program: str = "/usr/share/katran/balancer.o"
-    hc_program: str = "/usr/share/katran/healthchecking_ipip.o"
-    
-    # Map configuration
-    max_vips: int = 512
-    max_reals: int = 4096
-    lru_size: int = 1_000_000
-    ring_size: int = 65537
-    
-    # API configuration
-    grpc_port: int = 50051
-    rest_port: int = 8080
-    prometheus_port: int = 9100
-    
-    # Gateway configuration
-    default_gateway_mac: str
-    
-    # Logging
-    log_level: str = "INFO"
-    log_format: str = "json"
-    
-    @validator('ring_size')
-    def ring_size_must_be_prime(cls, v):
-        if not is_prime(v):
-            raise ValueError('ring_size must be prime')
-        return v
-    
-    @validator('interface')
-    def interface_must_exist(cls, v):
-        if not interface_exists(v):
-            raise ValueError(f'interface {v} does not exist')
-        return v
-    
-    @classmethod
-    def from_yaml(cls, path: str) -> 'KatranConfig':
-        """Load configuration from YAML file"""
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(**data)
-```
-
-### 8.3 Logging Infrastructure
-
-```python
-# Task: Implement structured logging
+# Task: Implement comprehensive structured logging
+# Extends basic logging from Phase 2.1
 
 import structlog
-import logging.config
+from typing import Optional
 
-def setup_logging(config: KatranConfig) -> None:
-    """Configure structured logging"""
-    
+class AuditLogger:
+    """
+    Audit logger for tracking all configuration changes.
+
+    Logs to separate audit log file for compliance.
+    """
+
+    def __init__(self, audit_log_path: Path):
+        self.log = structlog.get_logger("audit")
+        self._setup_audit_handler(audit_log_path)
+
+    def _setup_audit_handler(self, path: Path) -> None:
+        """Setup dedicated audit log file handler"""
+        handler = logging.FileHandler(path)
+        handler.setFormatter(
+            logging.Formatter('%(message)s')  # structlog handles formatting
+        )
+        self.log.addHandler(handler)
+
+    def log_vip_added(
+        self,
+        vip_key: VipKey,
+        vip_num: int,
+        user: Optional[str] = None,
+        source_ip: Optional[str] = None
+    ) -> None:
+        """Log VIP addition"""
+        self.log.info(
+            "vip.added",
+            action="vip_added",
+            vip_address=str(vip_key.address),
+            vip_port=vip_key.port,
+            protocol=vip_key.protocol.name,
+            vip_num=vip_num,
+            user=user,
+            source_ip=source_ip
+        )
+
+    def log_vip_removed(
+        self,
+        vip_key: VipKey,
+        user: Optional[str] = None
+    ) -> None:
+        """Log VIP removal"""
+        self.log.info(
+            "vip.removed",
+            action="vip_removed",
+            vip_address=str(vip_key.address),
+            vip_port=vip_key.port,
+            protocol=vip_key.protocol.name,
+            user=user
+        )
+
+    def log_backend_added(
+        self,
+        vip_key: VipKey,
+        backend_address: str,
+        weight: int,
+        user: Optional[str] = None
+    ) -> None:
+        """Log backend addition"""
+        self.log.info(
+            "backend.added",
+            action="backend_added",
+            vip_address=str(vip_key.address),
+            vip_port=vip_key.port,
+            backend_address=backend_address,
+            weight=weight,
+            user=user
+        )
+
+    # Additional audit methods...
+
+
+def setup_advanced_logging(config: KatranConfig) -> tuple[AuditLogger, structlog.BoundLogger]:
+    """
+    Setup comprehensive structured logging.
+
+    Returns:
+        Tuple of (audit_logger, main_logger)
+    """
+    # Configure structlog with advanced processors
     structlog.configure(
         processors=[
+            structlog.contextvars.merge_contextvars,
             structlog.stdlib.filter_by_level,
             structlog.stdlib.add_logger_name,
             structlog.stdlib.add_log_level,
@@ -1626,8 +2758,15 @@ def setup_logging(config: KatranConfig) -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
+            structlog.processors.CallsiteParameterAdder(
+                parameters=[
+                    structlog.processors.CallsiteParameter.FILENAME,
+                    structlog.processors.CallsiteParameter.FUNC_NAME,
+                    structlog.processors.CallsiteParameter.LINENO,
+                ]
+            ),
             structlog.processors.JSONRenderer()
-            if config.log_format == "json"
+            if config.logging.format == "json"
             else structlog.dev.ConsoleRenderer()
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
@@ -1636,25 +2775,199 @@ def setup_logging(config: KatranConfig) -> None:
         cache_logger_on_first_use=True,
     )
 
-# Usage
-log = structlog.get_logger()
-log.info("vip_added", vip=str(vip.key), vip_num=vip.vip_num)
-log.error("ring_rebuild_failed", vip=str(vip.key), error=str(e))
+    # Setup audit logger
+    audit_log_path = Path("/var/log/katran/audit.log")
+    audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_logger = AuditLogger(audit_log_path)
+
+    # Main logger
+    main_logger = structlog.get_logger()
+
+    return audit_logger, main_logger
 ```
 
-### 8.4 Phase 8 Deliverables Checklist
+### 8.3 Enhanced Graceful Shutdown
 
-- [ ] Graceful startup sequence
-- [ ] Graceful shutdown with draining
-- [ ] Configuration file support (YAML)
-- [ ] Configuration validation
-- [ ] Hot reload capability
-- [ ] Structured logging (JSON)
-- [ ] Log levels and filtering
-- [ ] Audit logging for changes
+```python
+# Task: Implement enhanced graceful shutdown
+# Extends basic shutdown from Phase 2.1
+
+class ShutdownCoordinator:
+    """
+    Coordinates graceful shutdown across all components.
+
+    Ensures proper ordering and timeout handling.
+    """
+
+    def __init__(self, service: KatranService):
+        self.service = service
+        self.shutdown_timeout = 30.0
+        self.drain_timeout = 20.0
+
+    def shutdown(self) -> None:
+        """
+        Perform graceful shutdown with proper ordering.
+
+        Steps:
+        1. Stop accepting new API requests (return 503)
+        2. Drain existing API connections
+        3. Stop statistics collection
+        4. Wait for in-flight operations
+        5. Close BPF maps
+        6. Unload XDP programs
+        """
+        log.info("Starting graceful shutdown")
+
+        shutdown_start = time.time()
+
+        try:
+            # Phase 1: Stop accepting new requests
+            log.info("Phase 1: Stopping API servers")
+            self._stop_api_servers()
+
+            # Phase 2: Drain connections
+            log.info("Phase 2: Draining connections", timeout=self.drain_timeout)
+            self._wait_for_drain(self.drain_timeout)
+
+            # Phase 3: Stop statistics collection
+            log.info("Phase 3: Stopping statistics collection")
+            if self.service.stats_collector:
+                self.service.stats_collector.stop()
+
+            # Phase 4: Wait for in-flight operations
+            log.info("Phase 4: Waiting for in-flight operations")
+            self._wait_for_inflight_operations(timeout=5.0)
+
+            # Phase 5: Close BPF maps
+            log.info("Phase 5: Closing BPF maps")
+            self.service._close_maps()
+
+            # Phase 6: Unload XDP programs
+            log.info("Phase 6: Unloading XDP programs")
+            if self.service.loader:
+                self.service.loader.unload_all()
+
+            shutdown_duration = time.time() - shutdown_start
+            log.info("Graceful shutdown completed", duration=shutdown_duration)
+
+        except Exception as e:
+            log.error("Error during shutdown", error=str(e), exc_info=True)
+            raise
+
+    def _stop_api_servers(self) -> None:
+        """Stop API servers and return 503 for new requests"""
+        # Implementation depends on Phase 6 API servers
+        pass
+
+    def _wait_for_drain(self, timeout: float) -> None:
+        """Wait for existing connections to drain"""
+        time.sleep(timeout)
+
+    def _wait_for_inflight_operations(self, timeout: float) -> None:
+        """Wait for any in-flight BPF map operations"""
+        # Check if managers have pending operations
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not self._has_inflight_operations():
+                return
+            time.sleep(0.1)
+```
+
+### 8.4 Readiness and Liveness Probes
+
+```python
+# Task: Implement health probes for orchestration
+
+from enum import Enum
+
+class ServiceStatus(Enum):
+    STARTING = "starting"
+    READY = "ready"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+
+class HealthProbes:
+    """
+    Health probes for Kubernetes/orchestration.
+
+    - Liveness: Is the service alive? (should we restart?)
+    - Readiness: Is the service ready for traffic? (should we route traffic?)
+    """
+
+    def __init__(self, service: KatranService):
+        self.service = service
+        self.status = ServiceStatus.STARTING
+
+    def liveness(self) -> dict:
+        """
+        Liveness probe - indicates if service is alive.
+
+        Returns 200 unless service is in unrecoverable state.
+        """
+        # Basic liveness check
+        if not self.service.is_running():
+            return {"status": "dead", "code": 503}
+
+        # Check if critical components are functional
+        try:
+            # Can we access BPF maps?
+            if self.service.vip_map:
+                self.service.vip_map.get_fd()
+
+            return {"status": "alive", "code": 200}
+        except Exception as e:
+            return {"status": "dead", "error": str(e), "code": 503}
+
+    def readiness(self) -> dict:
+        """
+        Readiness probe - indicates if service is ready for traffic.
+
+        Returns 200 only when service is fully initialized and healthy.
+        """
+        if not self.service.is_running():
+            return {
+                "status": "not_ready",
+                "reason": "service_not_running",
+                "code": 503
+            }
+
+        # Check all components are initialized
+        checks = {
+            "vip_manager": self.service.vip_manager is not None,
+            "real_manager": self.service.real_manager is not None,
+            "maps_open": self.service._maps_opened,
+            "xdp_loaded": self.service.loader and self.service.loader.is_loaded() if hasattr(self.service, 'loader') else True,
+        }
+
+        if not all(checks.values()):
+            failed = [k for k, v in checks.items() if not v]
+            return {
+                "status": "not_ready",
+                "reason": "components_not_initialized",
+                "failed_checks": failed,
+                "code": 503
+            }
+
+        return {
+            "status": "ready",
+            "checks": checks,
+            "code": 200
+        }
+```
+
+### 8.5 Phase 8 Deliverables Checklist
+
+- [ ] Hot configuration reload capability
+- [ ] Configuration change diffing and atomic application
+- [ ] Advanced structured logging with structlog
+- [ ] Audit logging for all configuration changes
+- [ ] Enhanced graceful shutdown coordinator
+- [ ] Shutdown phase ordering and timeout handling
+- [ ] Liveness probe endpoint
+- [ ] Readiness probe endpoint
 - [ ] Resource cleanup on failure
-- [ ] Health check endpoint
-- [ ] Readiness probe
+- [ ] Connection draining support
+- [ ] Signal handler improvements (SIGHUP for reload)
 
 ---
 
@@ -1806,6 +3119,7 @@ class TestEndToEnd:
 |-------|----------|-----------------|
 | 1. Foundation | 2-3 weeks | BPF map management |
 | 2. Core LB Logic | 2-3 weeks | VIP/Real management, Maglev |
+| 2.1. Service & E2E | 2 weeks | Control plane service, E2E testing |
 | 3. XDP/TC Loading | 1-2 weeks | Program loading |
 | 4. Statistics | 2 weeks | Monitoring & Prometheus |
 | 5. Healthcheck | 1-2 weeks | HC routing |
@@ -1815,7 +3129,7 @@ class TestEndToEnd:
 | 9. Testing | 2 weeks | Comprehensive testing |
 | 10. Documentation | 1-2 weeks | Docs & deployment |
 
-**Total Estimated Duration:** 16-23 weeks
+**Total Estimated Duration:** 18-25 weeks
 
 ---
 

@@ -36,6 +36,27 @@
 
 ---
 
+## Phase 2.1: Control Plane Service & E2E Testing Infrastructure
+**Goal:** Create runnable control plane service and end-to-end testing framework
+
+- [x] Configuration file support (YAML) (`core/config.py`)
+- [x] Configuration validation with pydantic
+- [x] Basic structured logging setup
+- [x] Control plane service coordinator (`service.py`)
+- [x] Service lifecycle management (start/stop)
+- [x] Component initialization and wiring
+- [x] Minimal HTTP API for testing (FastAPI)
+- [x] Health check endpoint (`/health`)
+- [x] VIP management endpoints (add/remove/list)
+- [x] Backend management endpoints (add/remove/drain)
+- [x] E2E test infrastructure (Docker-based)
+- [x] E2E test fixtures (start/stop control plane)
+- [x] E2E tests with real packet forwarding
+- [x] Test configuration files
+- [x] Docker Compose for E2E environment
+
+---
+
 ## Phase 3: XDP/TC Program Loading
 **Goal:** Load and manage XDP and TC BPF programs
 
@@ -110,19 +131,19 @@
 ---
 
 ## Phase 8: Production Hardening
-**Goal:** Production-ready features and reliability
+**Goal:** Advanced production-ready features and reliability
 
-- [ ] Graceful startup sequence
-- [ ] Graceful shutdown with draining
-- [ ] Configuration file support (YAML)
-- [ ] Configuration validation (pydantic)
-- [ ] Hot reload capability
-- [ ] Structured logging (JSON) with structlog
-- [ ] Log levels and filtering
-- [ ] Audit logging for changes
+- [ ] Hot configuration reload capability
+- [ ] Configuration change diffing and atomic application
+- [ ] Advanced structured logging with structlog
+- [ ] Audit logging for all configuration changes
+- [ ] Enhanced graceful shutdown coordinator
+- [ ] Shutdown phase ordering and timeout handling
+- [ ] Liveness probe endpoint
+- [ ] Readiness probe endpoint
 - [ ] Resource cleanup on failure
-- [ ] Health check endpoint
-- [ ] Readiness probe
+- [ ] Connection draining support
+- [ ] Signal handler improvements (SIGHUP for reload)
 
 ---
 
@@ -131,7 +152,8 @@
 
 - [ ] Unit tests for all core components (>80% coverage)
 - [x] Integration tests with real BPF maps (Docker Compose infrastructure)
-- [ ] End-to-end packet forwarding tests
+- [x] End-to-end tests with control plane service (Phase 2.1)
+- [ ] Packet forwarding verification tests
 - [ ] Performance benchmarks
 - [ ] Load testing
 - [ ] Chaos testing (failure injection)
@@ -164,6 +186,7 @@
 |-------|-------|--------|
 | Phase 1: Foundation & BPF Infrastructure | 13 | 13/13 Complete ✅ |
 | Phase 2: Core Load Balancing Logic | 11 | 11/11 Complete ✅ |
+| Phase 2.1: Control Plane Service & E2E Testing | 15 | 15/15 Complete |
 | Phase 3: XDP/TC Program Loading | 7 | Not Started |
 | Phase 4: Statistics & Monitoring | 10 | Not Started |
 | Phase 5: Healthcheck Management | 7 | Not Started |
@@ -172,4 +195,4 @@
 | Phase 8: Production Hardening | 11 | Not Started |
 | Phase 9: Testing & Quality | 9 | 1/9 Complete |
 | Phase 10: Documentation & Deployment | 11 | Not Started |
-| **Total** | **97** | |
+| **Total** | **112** | |

@@ -335,7 +335,7 @@ class VipManager:
             Number of VIPs that can still be allocated
         """
         with self._lock:
-            return self._vip_num_allocator.available_count()
+            return self._vip_num_allocator.available_count
 
     def get_vip_by_num(self, vip_num: int) -> Optional[Vip]:
         """

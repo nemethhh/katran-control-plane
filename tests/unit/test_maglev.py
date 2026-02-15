@@ -169,25 +169,21 @@ class TestUniformDistribution:
             assert deviation < 0.05, f"Backend {num} has {count}, expected ~{expected}"
 
     def test_weighted_distribution(self) -> None:
-        """Weights give initial advantage (Katran resets weight to 1 after first round)."""
+        """MaglevV2 provides proportional weighted distribution."""
         ring = MaglevHashRing(ring_size=10009)
         endpoints = [
-            Endpoint(num=1, weight=200, hash=11111),  # 2x initial weight
-            Endpoint(num=2, weight=100, hash=22222),  # 1x initial weight
+            Endpoint(num=1, weight=200, hash=11111),  # 2x weight
+            Endpoint(num=2, weight=100, hash=22222),  # 1x weight
         ]
         ring.build(endpoints)
 
         dist = ring.get_distribution()
 
-        # Katran's weight implementation: weights are reset to 1 after first round
-        # So with weights 200 and 100 in a 10009 ring:
-        # - First round: 200 + 100 = 300 positions (2:1 ratio)
-        # - Remaining: ~9709 positions split ~evenly (1:1 ratio)
-        # Final ratio should be slight bias toward higher weight, not 2:1
+        # MaglevV2 uses cumulative weight tracking for true proportional distribution.
+        # With weights 200:100 the ratio should be close to 2:1.
         ratio = dist[1] / dist[2]
-        # Backend 1 should have slightly more positions
-        assert ratio > 1.0, f"Higher weight backend should have more, got ratio {ratio}"
-        assert ratio < 1.1, f"Ratio too high for Katran's weight reset behavior: {ratio}"
+        assert ratio > 1.8, f"Higher weight backend should have ~2x more, got ratio {ratio}"
+        assert ratio < 2.2, f"Ratio too far from 2:1: {ratio}"
 
     def test_zero_weight_excluded(self) -> None:
         """Zero weight backends get no ring positions."""
@@ -254,7 +250,7 @@ class TestMinimalDisruption:
         assert pct > 15, f"Changed {pct}%, expected >15%"
 
     def test_weight_change_minimal_disruption(self) -> None:
-        """Changing weight causes minimal disruption (Katran resets weights after first round)."""
+        """Changing weight causes moderate disruption with MaglevV2 proportional weights."""
         ring1 = MaglevHashRing(ring_size=10009)
         endpoints1 = [
             Endpoint(num=1, weight=100, hash=11111),
@@ -265,18 +261,17 @@ class TestMinimalDisruption:
         # Double backend 1's weight
         ring2 = MaglevHashRing(ring_size=10009)
         endpoints2 = [
-            Endpoint(num=1, weight=200, hash=11111),  # 2x initial weight now
+            Endpoint(num=1, weight=200, hash=11111),  # 2x weight now
             Endpoint(num=2, weight=100, hash=22222),
         ]
         new_ring = ring2.build(endpoints2)
 
         changed, pct = compute_ring_changes(old_ring, new_ring)
 
-        # Because Katran resets weights to 1 after first round, weight changes
-        # cause very minimal disruption - only the first ~300 positions differ
-        # in their fill order, and most end up the same.
-        # Expect less than 5% disruption for doubling weight
-        assert pct < 5, f"Changed {pct}%, expected <5% for Katran weight behavior"
+        # MaglevV2 uses true proportional weights, so doubling one backend's
+        # weight shifts ~1/6 of total ring positions (from 50/50 to 66/33).
+        # Expect ~17% disruption.
+        assert pct < 25, f"Changed {pct}%, expected <25% for weight doubling"
 
 
 class TestLookup:

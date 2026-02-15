@@ -131,7 +131,7 @@ print_test "Running pytest"
 PYTEST_ARGS="-v --tb=short -s"
 [ "$DEBUG" = "1" ] && PYTEST_ARGS="-vv --tb=long -s"
 
-PYTEST_OUT=$(docker_exec pytest tests/integration/ $PYTEST_ARGS 2>&1) || true
+PYTEST_OUT=$(docker_exec pytest tests/integration/ tests/e2e/ $PYTEST_ARGS 2>&1) || true
 
 # Parse pytest summary line (e.g., "====== 41 passed in 89.61s ======")
 SUMMARY_LINE=$(echo "$PYTEST_OUT" | grep -E "^=+.*passed.*=+$" | tail -1)

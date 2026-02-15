@@ -334,7 +334,7 @@ class TestRealManagerQueries:
         assert real_manager.get_real_ref_count("10.0.0.100") == 2
 
         # Nonexistent backend
-        assert real_manager.get_real_ref_count("10.0.0.999") == 0
+        assert real_manager.get_real_ref_count("10.0.0.200") == 0
 
 
 class TestRealManagerRingRebuild:

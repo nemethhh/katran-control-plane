@@ -1,7 +1,9 @@
 README.md
 pyproject.toml
 src/katran/__init__.py
+src/katran/service.py
 src/katran/api/__init__.py
+src/katran/api/minimal.py
 src/katran/api/grpc/__init__.py
 src/katran/api/rest/__init__.py
 src/katran/bpf/__init__.py
@@ -16,10 +18,15 @@ src/katran/bpf/maps/stats_map.py
 src/katran/bpf/maps/vip_map.py
 src/katran/cli/__init__.py
 src/katran/core/__init__.py
+src/katran/core/config.py
 src/katran/core/constants.py
 src/katran/core/exceptions.py
+src/katran/core/logging.py
 src/katran/core/types.py
 src/katran/lb/__init__.py
+src/katran/lb/maglev.py
+src/katran/lb/real_manager.py
+src/katran/lb/vip_manager.py
 src/katran/stats/__init__.py
 src/katran_control_plane.egg-info/PKG-INFO
 src/katran_control_plane.egg-info/SOURCES.txt

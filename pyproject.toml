@@ -39,6 +39,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    "httpx>=0.24.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
     "black>=23.0.0",
@@ -73,3 +74,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+asyncio_mode = "auto"
+markers = [
+    "e2e: end-to-end tests requiring BPF environment",
+]

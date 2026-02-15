@@ -1,0 +1,27 @@
+# Katran Control Plane Configuration (Nested Format)
+# ===================================================
+
+interface:
+  name: eth0
+  xdp_mode: native  # native, generic, offload, or skb
+  default_gateway_mac: "aa:bb:cc:dd:ee:ff"
+
+bpf:
+  xdp_program: /usr/share/katran/balancer.o
+  hc_program: /usr/share/katran/healthchecking_ipip.o
+  pin_path: /sys/fs/bpf/katran
+
+maps:
+  max_vips: 512
+  max_reals: 4096
+  lru_size: 1000000
+  ring_size: 65537
+
+api:
+  grpc_port: 50051
+  rest_port: 8080
+  prometheus_port: 9100
+
+logging:
+  level: INFO
+  format: json  # json or console

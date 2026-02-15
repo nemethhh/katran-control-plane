@@ -1,5 +1,7 @@
-"""Core module containing types, constants, and exceptions."""
+"""Core module containing types, constants, exceptions, config, and logging."""
 
+from katran.core.config import KatranConfig
+from katran.core.logging import get_logger, setup_logging
 from katran.core.constants import (
     RING_SIZE,
     MAX_VIPS,
@@ -44,6 +46,10 @@ from katran.core.exceptions import (
 )
 
 __all__ = [
+    # Config & Logging
+    "KatranConfig",
+    "setup_logging",
+    "get_logger",
     # Constants
     "RING_SIZE",
     "MAX_VIPS",

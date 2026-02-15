@@ -1,23 +1,37 @@
 # Makefile for Katran Control Plane
 
-.PHONY: all install dev test unit-test integration-test lint format clean docker-build docker-test docker-debug help
+.PHONY: all install dev test unit-test e2e-test integration-test lint format clean \
+        docker-build docker-test docker-debug docker-stop docker-clean \
+        e2e-multi e2e-multi-debug e2e-multi-shell e2e-multi-stop e2e-multi-clean help
 
-PYTHON := python3
-PYTEST := pytest
+VENV := .venv/bin
+PYTHON := $(VENV)/python3
+PYTEST := $(PYTHON) -m pytest
+PIP := $(PYTHON) -m pip
 DOCKER_COMPOSE := docker compose -f docker-compose.test.yml
+E2E_COMPOSE := docker compose -f docker-compose.e2e.yml
 
 # Default target
 all: help
 
-# Install package
+# ─── Setup ───────────────────────────────────────────────────────────────────
+
+# Create venv and install package in editable mode with dev deps
+venv:
+	python3 -m venv .venv
+	$(PIP) install -e ".[dev]"
+
+# Install package (editable)
 install:
-	$(PYTHON) -m pip install -e .
+	$(PIP) install -e .
 
 # Install with development dependencies
 dev:
-	$(PYTHON) -m pip install -e ".[dev]"
+	$(PIP) install -e ".[dev]"
 
-# Run all tests (unit only, integration requires Docker)
+# ─── Testing ─────────────────────────────────────────────────────────────────
+
+# Run all local tests (unit only; integration/e2e require Docker)
 test: unit-test
 
 # Run unit tests
@@ -28,7 +42,11 @@ unit-test:
 unit-test-cov:
 	$(PYTEST) tests/unit/ -v --cov=src/katran --cov-report=html --cov-report=term
 
-# Run integration tests (uses shell script for proper orchestration)
+# Run e2e tests (requires BPF environment — use inside Docker or via integration-test)
+e2e-test:
+	$(PYTEST) tests/e2e/ -v
+
+# Run integration + e2e tests (uses shell script for Docker orchestration)
 integration-test:
 	./tests/integration/run-tests.sh
 
@@ -36,31 +54,34 @@ integration-test:
 integration-test-debug:
 	./tests/integration/run-tests.sh --debug
 
+# ─── Quality ─────────────────────────────────────────────────────────────────
+
 # Lint code
 lint:
-	ruff check src/ tests/
-	mypy src/
+	$(VENV)/ruff check src/ tests/
+	$(VENV)/mypy src/
 
 # Format code
 format:
-	ruff format src/ tests/
-	ruff check --fix src/ tests/
+	$(VENV)/ruff format src/ tests/
+	$(VENV)/ruff check --fix src/ tests/
+
+# Validate config files load without errors
+check-config:
+	$(PYTHON) -c "from katran.core.config import KatranConfig; c = KatranConfig.from_yaml('config/katran.yaml'); print('flat  :', c.interface.name, c.maps.ring_size)"
+	$(PYTHON) -c "from katran.core.config import KatranConfig; c = KatranConfig.from_yaml('config/katran-nested.yaml'); print('nested:', c.interface.name, c.maps.ring_size)"
+
+# ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 # Clean build artifacts
 clean:
-	rm -rf build/
-	rm -rf dist/
-	rm -rf *.egg-info/
-	rm -rf src/*.egg-info/
-	rm -rf .pytest_cache/
-	rm -rf .mypy_cache/
-	rm -rf .ruff_cache/
-	rm -rf htmlcov/
-	rm -rf .coverage
+	rm -rf build/ dist/ *.egg-info/ src/*.egg-info/
+	rm -rf .pytest_cache/ .mypy_cache/ .ruff_cache/
+	rm -rf htmlcov/ .coverage
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
 
-# Docker targets
+# ─── Docker ──────────────────────────────────────────────────────────────────
 
 # Build Docker image for integration tests
 docker-build:
@@ -84,24 +105,52 @@ docker-stop:
 docker-clean:
 	$(DOCKER_COMPOSE) down --rmi local -v
 
-# Help
+# ─── E2E Multi-Container ────────────────────────────────────────────────
+
+# Run multi-container E2E tests (XDP traffic forwarding)
+e2e-multi:
+	./tests/e2e/run-e2e.sh
+
+# Run multi-container E2E tests with debug output
+e2e-multi-debug:
+	./tests/e2e/run-e2e.sh --debug
+
+# Start interactive shell in test-client container
+e2e-multi-shell:
+	./tests/e2e/run-e2e.sh --shell
+
+# Stop E2E containers
+e2e-multi-stop:
+	$(E2E_COMPOSE) down -v
+
+# Clean E2E Docker resources
+e2e-multi-clean:
+	$(E2E_COMPOSE) down --rmi local -v
+
+# ─── Help ────────────────────────────────────────────────────────────────────
+
 help:
 	@echo "Katran Control Plane - Available targets:"
 	@echo ""
-	@echo "Development:"
-	@echo "  install          Install package"
+	@echo "Setup:"
+	@echo "  venv             Create .venv and install dev deps"
+	@echo "  install          Install package (editable)"
 	@echo "  dev              Install with dev dependencies"
-	@echo "  lint             Run linters (ruff, mypy)"
-	@echo "  format           Format code with ruff"
-	@echo "  clean            Clean build artifacts"
 	@echo ""
 	@echo "Testing:"
-	@echo "  test             Run unit tests"
+	@echo "  test             Run unit tests (alias)"
 	@echo "  unit-test        Run unit tests"
 	@echo "  unit-test-cov    Run unit tests with coverage"
-	@echo "  integration-test Run integration tests (Docker)"
+	@echo "  e2e-test         Run e2e tests (needs BPF env)"
+	@echo "  integration-test Run integration + e2e tests (Docker)"
 	@echo ""
-	@echo "Docker (for integration tests):"
+	@echo "Quality:"
+	@echo "  lint             Run linters (ruff, mypy)"
+	@echo "  format           Format code with ruff"
+	@echo "  check-config     Validate YAML config files"
+	@echo "  clean            Clean build artifacts"
+	@echo ""
+	@echo "Docker (single-container integration):"
 	@echo "  docker-build         Build test Docker image"
 	@echo "  docker-test          Run integration tests"
 	@echo "  docker-test-verbose  Run tests with verbose output"
@@ -109,8 +158,9 @@ help:
 	@echo "  docker-stop          Stop Docker services"
 	@echo "  docker-clean         Clean Docker resources"
 	@echo ""
-	@echo "Examples:"
-	@echo "  make dev                      # Install for development"
-	@echo "  make unit-test                # Run unit tests"
-	@echo "  make integration-test         # Run integration tests"
-	@echo "  make integration-test-debug   # Run with debug output"
+	@echo "E2E Multi-Container (XDP traffic forwarding):"
+	@echo "  e2e-multi            Run multi-container E2E tests"
+	@echo "  e2e-multi-debug      Run with verbose/debug output"
+	@echo "  e2e-multi-shell      Shell into test-client container"
+	@echo "  e2e-multi-stop       Stop E2E containers"
+	@echo "  e2e-multi-clean      Clean E2E Docker resources"

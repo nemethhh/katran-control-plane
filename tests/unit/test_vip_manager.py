@@ -68,10 +68,10 @@ class TestVipManagerAddVip:
             "10.200.1.1",
             80,
             Protocol.TCP,
-            flags=VipFlags.NO_SPORT | VipFlags.NO_LRU,
+            flags=VipFlags.NO_SRC_PORT | VipFlags.NO_LRU,
         )
 
-        assert vip.flags == (VipFlags.NO_SPORT | VipFlags.NO_LRU)
+        assert vip.flags == (VipFlags.NO_SRC_PORT | VipFlags.NO_LRU)
 
     def test_add_multiple_vips(self, vip_manager):
         """Test adding multiple VIPs."""
@@ -238,11 +238,11 @@ class TestVipManagerModifyFlags:
         vip = vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
 
         result = vip_manager.modify_flags(
-            vip.key, VipFlags.NO_SPORT | VipFlags.NO_LRU
+            vip.key, VipFlags.NO_SRC_PORT | VipFlags.NO_LRU
         )
 
         assert result is True
-        assert vip.flags == (VipFlags.NO_SPORT | VipFlags.NO_LRU)
+        assert vip.flags == (VipFlags.NO_SRC_PORT | VipFlags.NO_LRU)
 
     def test_modify_flags_updates_bpf_map(
         self, vip_manager, mock_vip_map
@@ -251,19 +251,19 @@ class TestVipManagerModifyFlags:
         vip = vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
         mock_vip_map.reset_mock()
 
-        vip_manager.modify_flags(vip.key, VipFlags.NO_SPORT)
+        vip_manager.modify_flags(vip.key, VipFlags.NO_SRC_PORT)
 
         # Check set was called with updated meta
         mock_vip_map.set.assert_called_once()
         call_args = mock_vip_map.set.call_args[0]
         assert call_args[0] == vip.key
-        assert call_args[1].flags == VipFlags.NO_SPORT
+        assert call_args[1].flags == VipFlags.NO_SRC_PORT
 
     def test_modify_flags_nonexistent_vip_returns_false(self, vip_manager):
         """Test modifying flags for nonexistent VIP returns False."""
         key = VipKey(IPv4Address("10.200.1.1"), 80, Protocol.TCP)
 
-        result = vip_manager.modify_flags(key, VipFlags.NO_SPORT)
+        result = vip_manager.modify_flags(key, VipFlags.NO_SRC_PORT)
 
         assert result is False
 
