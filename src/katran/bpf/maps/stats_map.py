@@ -4,9 +4,9 @@ Statistics map wrapper for BPF stats per-CPU array.
 The stats map stores per-CPU statistics counters. Each entry is an lb_stats
 structure containing two 64-bit counters (typically packets and bytes).
 
-The map uses indices based on vip_num and counter type:
-- Per-VIP stats: vip_num * 2 + offset
-- Global stats: Specific counter indices from StatsCounterIndex
+Map layout (matches BPF balancer_consts.h):
+- Indices 0..MAX_VIPS-1: per-VIP stats (one entry per VIP, v1=packets, v2=bytes)
+- Indices MAX_VIPS+offset: global counters (LRU, XDP actions, etc.)
 
 BPF Map Definition:
     Type: BPF_MAP_TYPE_PERCPU_ARRAY
@@ -129,18 +129,20 @@ class StatsMap(PerCpuBpfMap[int, LbStats]):
     # Index calculation
     # -------------------------------------------------------------------------
 
-    def get_vip_stats_index(self, vip_num: int, offset: int = 0) -> int:
+    def _global_index(self, offset: int) -> int:
         """
-        Get stats index for a VIP.
+        Get stats map index for a global counter.
+
+        The BPF program stores global counters at MAX_VIPS + offset,
+        after the per-VIP entries (0..MAX_VIPS-1).
 
         Args:
-            vip_num: VIP index number
-            offset: Offset within VIP's stats (0 or 1)
+            offset: Counter offset (StatsCounterIndex value)
 
         Returns:
-            Index in stats array
+            Absolute index in stats array
         """
-        return vip_num * 2 + offset
+        return self._max_vips + offset
 
     # -------------------------------------------------------------------------
     # Statistics collection
@@ -175,53 +177,56 @@ class StatsMap(PerCpuBpfMap[int, LbStats]):
         """
         Get aggregated statistics for a VIP.
 
+        The BPF program stores one lb_stats entry per VIP at index vip_num:
+          v1 = packets forwarded, v2 = bytes forwarded.
+
+        Per-VIP LRU stats are not tracked in the BPF program (LRU
+        counters are global only), so lru_hits/lru_misses are always 0.
+
         Args:
             vip_num: VIP index number
 
         Returns:
             VipStatistics with aggregated values
         """
-        # Get primary VIP counter (packets/bytes)
-        primary_idx = self.get_vip_stats_index(vip_num, 0)
-        primary = self.get_counter(primary_idx)
-
-        # Get secondary VIP counter (LRU stats)
-        secondary_idx = self.get_vip_stats_index(vip_num, 1)
-        secondary = self.get_counter(secondary_idx)
+        stats = self.get_counter(vip_num)
 
         return VipStatistics(
-            packets=primary.v1,
-            bytes=primary.v2,
-            lru_hits=secondary.v1,
-            lru_misses=secondary.v2,
+            packets=stats.v1,
+            bytes=stats.v2,
+            lru_hits=0,
+            lru_misses=0,
         )
 
     def get_global_stats(self) -> GlobalStatistics:
         """
         Get aggregated global statistics.
 
+        Global counters live at index MAX_VIPS + offset in the stats map,
+        after all the per-VIP entries.
+
         Returns:
             GlobalStatistics with aggregated values
         """
         # LRU counters
-        lru = self.get_counter(StatsCounterIndex.LRU_CNTRS)
-        lru_miss = self.get_counter(StatsCounterIndex.LRU_MISS_CNTR)
+        lru = self.get_counter(self._global_index(StatsCounterIndex.LRU_CNTRS))
+        lru_miss = self.get_counter(self._global_index(StatsCounterIndex.LRU_MISS_CNTR))
 
         # New connection rate
-        new_conn = self.get_counter(StatsCounterIndex.NEW_CONN_RATE_CNTR)
+        new_conn = self.get_counter(self._global_index(StatsCounterIndex.NEW_CONN_RATE_CNTR))
 
         # ICMP too big
-        icmp = self.get_counter(StatsCounterIndex.ICMP_TOOBIG_CNTRS)
+        icmp = self.get_counter(self._global_index(StatsCounterIndex.ICMP_TOOBIG_CNTRS))
 
         # XDP counters
-        xdp_total = self.get_counter(StatsCounterIndex.XDP_TOTAL_CNTR)
+        xdp_total = self.get_counter(self._global_index(StatsCounterIndex.XDP_TOTAL_CNTR))
 
         return GlobalStatistics(
             total_packets=xdp_total.v1,
             total_bytes=xdp_total.v2,
             total_lru_hits=lru.v1,
             total_lru_misses=lru_miss.v1,
-            vip_misses=lru.v2,  # VIP miss typically stored in v2
+            vip_misses=lru.v2,
             icmp_toobig=icmp.v1,
             new_connections=new_conn.v1,
         )
@@ -248,10 +253,10 @@ class StatsMap(PerCpuBpfMap[int, LbStats]):
         Returns:
             Dictionary with XDP action counts
         """
-        total = self.get_counter(StatsCounterIndex.XDP_TOTAL_CNTR)
-        tx = self.get_counter(StatsCounterIndex.XDP_TX_CNTR)
-        drop = self.get_counter(StatsCounterIndex.XDP_DROP_CNTR)
-        pass_cnt = self.get_counter(StatsCounterIndex.XDP_PASS_CNTR)
+        total = self.get_counter(self._global_index(StatsCounterIndex.XDP_TOTAL_CNTR))
+        tx = self.get_counter(self._global_index(StatsCounterIndex.XDP_TX_CNTR))
+        drop = self.get_counter(self._global_index(StatsCounterIndex.XDP_DROP_CNTR))
+        pass_cnt = self.get_counter(self._global_index(StatsCounterIndex.XDP_PASS_CNTR))
 
         return {
             "total": total.v1,
@@ -278,8 +283,4 @@ class StatsMap(PerCpuBpfMap[int, LbStats]):
         Args:
             vip_num: VIP index number
         """
-        primary_idx = self.get_vip_stats_index(vip_num, 0)
-        secondary_idx = self.get_vip_stats_index(vip_num, 1)
-
-        self.reset_counter(primary_idx)
-        self.reset_counter(secondary_idx)
+        self.reset_counter(vip_num)

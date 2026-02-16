@@ -12,10 +12,12 @@ import logging
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
 from pydantic import BaseModel, Field
 
 from katran.core.constants import Protocol
+from katran.stats.collector import KatranMetricsCollector
 from katran.core.exceptions import (
     KatranError,
     RealExistsError,
@@ -149,6 +151,33 @@ def create_app(service=None) -> FastAPI:
     app = FastAPI(title="Katran Control Plane", version="0.1.0")
     app.state.service = service
     app.add_exception_handler(KatranError, _katran_error_handler)
+
+    # Prometheus metrics endpoint — uses a direct FastAPI route instead of
+    # make_asgi_app() sub-application.  The ASGI sub-app approach bypasses
+    # FastAPI's exception handling; an unhandled error during BPF map reads
+    # can crash the Uvicorn event loop and kill the container.
+    if service is not None:
+        try:
+            registry = CollectorRegistry()
+            registry.register(KatranMetricsCollector(service))
+
+            def _metrics_handler():
+                try:
+                    output = generate_latest(registry)
+                    return Response(content=output, media_type=CONTENT_TYPE_LATEST)
+                except Exception:
+                    log.error("Failed to generate metrics", exc_info=True)
+                    return Response(
+                        content=b"# katran_up 0\n",
+                        media_type=CONTENT_TYPE_LATEST,
+                        status_code=500,
+                    )
+
+            app.add_api_route("/metrics", _metrics_handler, methods=["GET"])
+            app.add_api_route("/metrics/", _metrics_handler, methods=["GET"])
+            log.info("Registered Prometheus metrics endpoint at /metrics")
+        except Exception:
+            log.error("Failed to register metrics endpoint", exc_info=True)
 
     # --- Health -----------------------------------------------------------
 

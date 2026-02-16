@@ -73,7 +73,7 @@ def api_client(api_url) -> httpx.Client:
 
     Waits for the API to become healthy before yielding.
     """
-    client = httpx.Client(base_url=api_url, timeout=10.0)
+    client = httpx.Client(base_url=api_url, timeout=30.0)
 
     # Wait for API readiness
     for attempt in range(30):

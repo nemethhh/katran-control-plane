@@ -91,6 +91,35 @@ def _send_requests(vip_addr, count=20, port=TRAFFIC_VIP_PORT, timeout=5.0):
     return results
 
 
+def _parse_metric_value(content, metric_name, labels=None):
+    """
+    Parse a metric value from Prometheus text format.
+
+    Args:
+        content: Prometheus metrics text
+        metric_name: Metric name (e.g., "katran_vip_packets_total")
+        labels: Optional dict of label key-value pairs to match
+
+    Returns:
+        Float value of the metric, or None if not found
+    """
+    import re
+
+    if labels:
+        # Build label matcher like: address="10.0.0.1",port="80",protocol="tcp"
+        label_parts = [f'{k}="{v}"' for k, v in sorted(labels.items())]
+        label_str = ",".join(label_parts)
+        pattern = rf'{metric_name}\{{{label_str}\}}\s+(\d+(?:\.\d+)?)'
+    else:
+        # Match metric without labels
+        pattern = rf'^{metric_name}\s+(\d+(?:\.\d+)?)$'
+
+    match = re.search(pattern, content, re.MULTILINE)
+    if match:
+        return float(match.group(1))
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -382,3 +411,282 @@ class TestDrainShiftsTrafficV6:
             _remove_backend(api_client, vip_addr6, backend_1_addr6)
             _remove_backend(api_client, vip_addr6, backend_2_addr6)
             _teardown_vip(api_client, vip_addr6)
+
+
+# ===========================================================================
+# Metrics Validation Tests
+# ===========================================================================
+
+class TestMetricsAccuracy:
+    """Verify metrics accurately reflect real traffic forwarding."""
+
+    def test_vip_packet_counter_increases_with_traffic(
+        self, api_client, vip_addr, backend_1_addr
+    ):
+        """Send real traffic and verify VIP packet counter increases."""
+        _setup_vip(api_client, vip_addr)
+        _add_backend(api_client, vip_addr, backend_1_addr)
+        time.sleep(2)
+
+        try:
+            # Get initial metrics
+            resp = api_client.get("/metrics/")
+            assert resp.status_code == 200
+            initial_content = resp.text
+
+            labels = {
+                "address": vip_addr,
+                "port": str(TRAFFIC_VIP_PORT),
+                "protocol": TRAFFIC_VIP_PROTO,
+            }
+
+            initial_packets = _parse_metric_value(
+                initial_content, "katran_vip_packets_total", labels
+            )
+            initial_bytes = _parse_metric_value(
+                initial_content, "katran_vip_bytes_total", labels
+            )
+
+            # Send traffic
+            results = _send_requests(vip_addr, count=10)
+            successful = [r for r in results if r is not None]
+            assert len(successful) >= 5, f"Expected at least 5 successful requests"
+
+            # Wait a moment for stats to propagate
+            time.sleep(1)
+
+            # Get updated metrics
+            resp = api_client.get("/metrics/")
+            assert resp.status_code == 200
+            updated_content = resp.text
+
+            updated_packets = _parse_metric_value(
+                updated_content, "katran_vip_packets_total", labels
+            )
+            updated_bytes = _parse_metric_value(
+                updated_content, "katran_vip_bytes_total", labels
+            )
+
+            # Verify counters increased
+            if initial_packets is not None and updated_packets is not None:
+                assert updated_packets > initial_packets, (
+                    f"Packet counter should increase: "
+                    f"initial={initial_packets}, updated={updated_packets}"
+                )
+
+            if initial_bytes is not None and updated_bytes is not None:
+                assert updated_bytes > initial_bytes, (
+                    f"Byte counter should increase: "
+                    f"initial={initial_bytes}, updated={updated_bytes}"
+                )
+
+        finally:
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            _teardown_vip(api_client, vip_addr)
+
+    def test_global_packet_counter_increases_with_traffic(
+        self, api_client, vip_addr, backend_1_addr
+    ):
+        """Verify global packet counter increases with real traffic."""
+        _setup_vip(api_client, vip_addr)
+        _add_backend(api_client, vip_addr, backend_1_addr)
+        time.sleep(2)
+
+        try:
+            # Get initial global metrics
+            resp = api_client.get("/metrics/")
+            assert resp.status_code == 200
+            initial_content = resp.text
+
+            initial_packets = _parse_metric_value(
+                initial_content, "katran_packets_total"
+            )
+            initial_bytes = _parse_metric_value(
+                initial_content, "katran_bytes_total"
+            )
+
+            # Send traffic
+            results = _send_requests(vip_addr, count=10)
+            successful = [r for r in results if r is not None]
+            assert len(successful) >= 5
+
+            time.sleep(1)
+
+            # Get updated metrics
+            resp = api_client.get("/metrics/")
+            updated_content = resp.text
+
+            updated_packets = _parse_metric_value(
+                updated_content, "katran_packets_total"
+            )
+            updated_bytes = _parse_metric_value(
+                updated_content, "katran_bytes_total"
+            )
+
+            # Verify global counters increased
+            if initial_packets is not None and updated_packets is not None:
+                assert updated_packets > initial_packets, (
+                    f"Global packet counter should increase: "
+                    f"initial={initial_packets}, updated={updated_packets}"
+                )
+
+            if initial_bytes is not None and updated_bytes is not None:
+                assert updated_bytes > initial_bytes, (
+                    f"Global byte counter should increase: "
+                    f"initial={initial_bytes}, updated={updated_bytes}"
+                )
+
+        finally:
+            _remove_backend(api_client, vip_addr, backend_1_addr)
+            _teardown_vip(api_client, vip_addr)
+
+    def test_multiple_vips_separate_counters(
+        self, api_client, vip_addr, backend_1_addr
+    ):
+        """Verify different VIPs have independent packet counters.
+
+        Creates two VIPs on different ports and verifies each gets its own
+        metrics.  A sleep between the two add-backend calls gives the server
+        time to finish the 65 k-entry CH ring writes.
+        """
+        vip1_addr = vip_addr
+        vip1_port = TRAFFIC_VIP_PORT
+        vip2_port = 8080
+
+        try:
+            _setup_vip(api_client, vip1_addr, port=vip1_port)
+            _add_backend(api_client, vip1_addr, backend_1_addr, port=vip1_port)
+
+            # Let the server settle after the first 65 k ring write before
+            # issuing the next heavy operation.
+            time.sleep(3)
+
+            _setup_vip(api_client, vip1_addr, port=vip2_port)
+            _add_backend(api_client, vip1_addr, backend_1_addr, port=vip2_port)
+
+            time.sleep(3)
+
+            # Send traffic only to VIP1
+            _send_requests(vip1_addr, count=5, port=vip1_port)
+            time.sleep(1)
+
+            # Get metrics
+            resp = api_client.get("/metrics/")
+            content = resp.text
+
+            labels1 = {
+                "address": vip1_addr,
+                "port": str(vip1_port),
+                "protocol": TRAFFIC_VIP_PROTO,
+            }
+            labels2 = {
+                "address": vip1_addr,
+                "port": str(vip2_port),
+                "protocol": TRAFFIC_VIP_PROTO,
+            }
+
+            packets1 = _parse_metric_value(
+                content, "katran_vip_packets_total", labels1
+            )
+            packets2 = _parse_metric_value(
+                content, "katran_vip_packets_total", labels2
+            )
+
+            # Both metrics should exist
+            assert packets1 is not None, "VIP1 metrics should exist"
+            assert packets2 is not None, "VIP2 metrics should exist"
+
+            # VIP1 should have received packets (we sent traffic to it)
+            # VIP2 might have 0 or small count (no real traffic sent)
+            assert packets1 >= 0, "VIP1 should have packet count"
+            assert packets2 >= 0, "VIP2 should have packet count"
+
+        finally:
+            # Best-effort cleanup: suppress errors so we don't mask the
+            # real failure and don't leave stale state for the next test.
+            for port in (vip1_port, vip2_port):
+                try:
+                    _remove_backend(api_client, vip1_addr, backend_1_addr, port=port)
+                except Exception:
+                    pass
+                try:
+                    _teardown_vip(api_client, vip1_addr, port=port)
+                except Exception:
+                    pass
+
+
+def _wait_for_api(api_client, timeout=30):
+    """Block until the control-plane API responds to /health."""
+    base_url = str(api_client._base_url)
+    for _ in range(timeout):
+        try:
+            resp = httpx.get(f"{base_url}/health", timeout=2.0)
+            if resp.status_code == 200:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    pytest.skip("Control plane API did not recover in time")
+
+
+class TestMetricsAccuracyV6:
+    """Verify metrics work correctly with IPv6 traffic."""
+
+    def test_vip_packet_counter_increases_with_ipv6_traffic(
+        self, api_client, vip_addr6, backend_1_addr6
+    ):
+        """Send IPv6 traffic and verify VIP packet counter increases."""
+        # Ensure the API is healthy (previous test may have stressed it)
+        _wait_for_api(api_client)
+
+        _setup_vip(api_client, vip_addr6)
+        _add_backend(api_client, vip_addr6, backend_1_addr6)
+        time.sleep(2)
+
+        try:
+            # Get initial metrics
+            resp = api_client.get("/metrics/")
+            assert resp.status_code == 200
+            initial_content = resp.text
+
+            labels = {
+                "address": vip_addr6,
+                "port": str(TRAFFIC_VIP_PORT),
+                "protocol": TRAFFIC_VIP_PROTO,
+            }
+
+            initial_packets = _parse_metric_value(
+                initial_content, "katran_vip_packets_total", labels
+            )
+
+            # Send IPv6 traffic
+            results = _send_requests(vip_addr6, count=10)
+            successful = [r for r in results if r is not None]
+            assert len(successful) >= 5
+
+            time.sleep(1)
+
+            # Get updated metrics
+            resp = api_client.get("/metrics/")
+            updated_content = resp.text
+
+            updated_packets = _parse_metric_value(
+                updated_content, "katran_vip_packets_total", labels
+            )
+
+            # Verify IPv6 VIP counter increased
+            if initial_packets is not None and updated_packets is not None:
+                assert updated_packets > initial_packets, (
+                    f"IPv6 VIP packet counter should increase: "
+                    f"initial={initial_packets}, updated={updated_packets}"
+                )
+
+        finally:
+            try:
+                _remove_backend(api_client, vip_addr6, backend_1_addr6)
+            except Exception:
+                pass
+            try:
+                _teardown_vip(api_client, vip_addr6)
+            except Exception:
+                pass

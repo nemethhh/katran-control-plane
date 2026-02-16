@@ -604,3 +604,165 @@ class TestMixedAddressing:
             assert addrs == {"10.0.10.2", "fc00:2::2"}
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
+
+
+# ===========================================================================
+# Prometheus Metrics tests
+# ===========================================================================
+
+class TestMetricsE2E:
+    """Test Prometheus /metrics endpoint integration."""
+
+    def test_metrics_endpoint(self, api_client):
+        """GET /metrics should return 200 with Prometheus text format."""
+        # FastAPI mount() requires trailing slash or follow redirects
+        resp = api_client.get("/metrics/")
+        assert resp.status_code == 200
+        assert "text/plain" in resp.headers["content-type"]
+
+        # Verify service is up
+        content = resp.text
+        assert "katran_up 1" in content or "katran_up 1.0" in content
+
+    def test_global_metrics_present(self, api_client):
+        """Verify global statistics metrics appear."""
+        resp = api_client.get("/metrics/")
+        assert resp.status_code == 200
+        content = resp.text
+
+        # Check for global counter metrics
+        assert "katran_packets_total" in content
+        assert "katran_bytes_total" in content
+        assert "katran_lru_hits_total" in content
+        assert "katran_lru_misses_total" in content
+        assert "katran_vip_misses_total" in content
+        assert "katran_icmp_toobig_total" in content
+        assert "katran_new_connections_total" in content
+
+    def test_vip_metrics(self, api_client):
+        """Create VIP + backend, verify per-VIP metrics with correct labels."""
+        vip = _vip("10.200.0.1", 8080, "tcp")
+
+        # Create VIP with backend
+        resp = api_client.post("/api/v1/vips", json=vip)
+        assert resp.status_code == 201
+
+        try:
+            resp = api_client.post("/api/v1/backends/add", json={
+                "vip": vip, "address": "10.0.50.1", "weight": 100,
+            })
+            assert resp.status_code == 201
+
+            # Scrape metrics
+            resp = api_client.get("/metrics/")
+            assert resp.status_code == 200
+            content = resp.text
+
+            # Verify per-VIP metrics with correct labels
+            assert "katran_vip_packets_total" in content
+            assert "katran_vip_bytes_total" in content
+            assert "katran_vip_lru_hits_total" in content
+            assert "katran_vip_lru_misses_total" in content
+            assert "katran_vip_backends" in content
+
+            # Check for our specific VIP labels (address, port, protocol)
+            assert 'address="10.200.0.1"' in content
+            assert 'port="8080"' in content
+            assert 'protocol="tcp"' in content
+
+            # Verify backend count gauge
+            assert 'katran_vip_backends{address="10.200.0.1",port="8080",protocol="tcp"} 1' in content
+        finally:
+            api_client.post("/api/v1/vips/remove", json=vip)
+
+    def test_per_cpu_metrics(self, api_client):
+        """Verify per-CPU packet counters appear."""
+        resp = api_client.get("/metrics/")
+        assert resp.status_code == 200
+        content = resp.text
+
+        # Check for per-CPU metrics
+        assert "katran_cpu_packets_total" in content
+        # Should have at least CPU 0
+        assert 'cpu="0"' in content
+
+    def test_vips_configured_reflects_reality(self, api_client):
+        """Verify katran_vips_configured accurately reflects VIP count."""
+        # Get initial metrics
+        resp = api_client.get("/metrics/")
+        initial_content = resp.text
+
+        # Extract initial VIP count from metrics
+        import re
+        match = re.search(r'katran_vips_configured (\d+(?:\.\d+)?)', initial_content)
+        assert match, "katran_vips_configured not found in metrics"
+        initial_count = int(float(match.group(1)))
+
+        # Create a new VIP
+        vip = _vip("10.201.0.1", 9090, "tcp")
+        resp = api_client.post("/api/v1/vips", json=vip)
+        assert resp.status_code == 201
+
+        try:
+            # Get updated metrics
+            resp = api_client.get("/metrics/")
+            updated_content = resp.text
+
+            # Extract updated VIP count
+            match = re.search(r'katran_vips_configured (\d+(?:\.\d+)?)', updated_content)
+            assert match, "katran_vips_configured not found in updated metrics"
+            updated_count = int(float(match.group(1)))
+
+            # Verify count increased by 1
+            assert updated_count == initial_count + 1, \
+                f"Expected VIP count to increase from {initial_count} to {initial_count + 1}, got {updated_count}"
+        finally:
+            api_client.post("/api/v1/vips/remove", json=vip)
+
+    def test_backend_count_reflects_reality(self, api_client):
+        """Verify katran_vip_backends accurately reflects backend count."""
+        vip = _vip("10.202.0.1", 9091, "tcp")
+
+        # Create VIP
+        resp = api_client.post("/api/v1/vips", json=vip)
+        assert resp.status_code == 201
+
+        try:
+            # Initially should have 0 backends
+            resp = api_client.get("/metrics/")
+            content = resp.text
+            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 0' in content
+
+            # Add first backend
+            resp = api_client.post("/api/v1/backends/add", json={
+                "vip": vip, "address": "10.0.60.1", "weight": 100,
+            })
+            assert resp.status_code == 201
+
+            resp = api_client.get("/metrics/")
+            content = resp.text
+            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 1' in content
+
+            # Add second backend
+            resp = api_client.post("/api/v1/backends/add", json={
+                "vip": vip, "address": "10.0.60.2", "weight": 100,
+            })
+            assert resp.status_code == 201
+
+            resp = api_client.get("/metrics/")
+            content = resp.text
+            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 2' in content
+
+            # Drain one backend (should still count as 2 backends, but only 1 active)
+            # Actually, active_reals only counts weight > 0, so draining should reduce count
+            resp = api_client.post("/api/v1/backends/drain", json={
+                "vip": vip, "address": "10.0.60.1",
+            })
+            assert resp.status_code == 200
+
+            resp = api_client.get("/metrics/")
+            content = resp.text
+            # After draining, only 1 backend should be active (weight > 0)
+            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 1' in content
+        finally:
+            api_client.post("/api/v1/vips/remove", json=vip)

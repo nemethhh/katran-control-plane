@@ -202,10 +202,11 @@ class ChRingsMap(BpfMap[int, int]):
         base = self.get_ring_base(vip_num)
         ring = []
 
-        with self._lock:
-            for i in range(self._ring_size):
-                value = self.get(base + i)
-                ring.append(value if value is not None else 0)
+        # Don't hold lock for entire read - each get() will acquire it briefly
+        # This allows other operations to interleave, preventing long blocks
+        for i in range(self._ring_size):
+            value = self.get(base + i)
+            ring.append(value if value is not None else 0)
 
         return ring
 

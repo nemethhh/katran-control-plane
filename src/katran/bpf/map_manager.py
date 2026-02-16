@@ -499,6 +499,10 @@ class BpfMap(ABC, Generic[K, V]):
         for _, value in self.items():
             yield value
 
+    def __bool__(self) -> bool:
+        """Map is truthy when the FD is open."""
+        return self._fd >= 0
+
     def __contains__(self, key: K) -> bool:
         """Check if key exists in map."""
         return self.get(key) is not None
@@ -736,6 +740,44 @@ class PerCpuBpfMap(BpfMap[K, V]):
         if not values:
             return None
         return self._aggregate_values(values)
+
+    def _iterate_raw(self) -> Iterator[tuple[bytes, bytes]]:
+        """
+        Raw iteration for per-CPU maps.
+
+        Overrides base class to use _percpu_value_size for the value buffer.
+        The base class uses _value_size which is the single-CPU size; for
+        per-CPU maps the kernel writes num_cpus * aligned_value_size bytes
+        into the buffer, causing a heap overflow if the buffer is too small.
+        """
+        key_buf = ctypes.create_string_buffer(self._key_size)
+        next_key_buf = ctypes.create_string_buffer(self._key_size)
+        value_buf = ctypes.create_string_buffer(self._percpu_value_size)
+
+        # Start with NULL key to get first key
+        attr = BpfAttrMapElem()
+        attr.map_fd = self.fd
+        attr.key = 0  # NULL for first key
+        attr.value_or_next_key = ctypes.cast(next_key_buf, ctypes.c_void_p).value or 0
+        attr.flags = 0
+
+        result = _bpf_syscall(BpfCmd.MAP_GET_NEXT_KEY, attr, ctypes.sizeof(attr))
+
+        while result >= 0:
+            ctypes.memmove(key_buf, next_key_buf, self._key_size)
+
+            attr2 = BpfAttrMapElem()
+            attr2.map_fd = self.fd
+            attr2.key = ctypes.cast(key_buf, ctypes.c_void_p).value or 0
+            attr2.value_or_next_key = ctypes.cast(value_buf, ctypes.c_void_p).value or 0
+            attr2.flags = 0
+
+            lookup_result = _bpf_syscall(BpfCmd.MAP_LOOKUP_ELEM, attr2, ctypes.sizeof(attr2))
+            if lookup_result >= 0:
+                yield bytes(key_buf.raw), bytes(value_buf.raw)
+
+            attr.key = ctypes.cast(key_buf, ctypes.c_void_p).value or 0
+            result = _bpf_syscall(BpfCmd.MAP_GET_NEXT_KEY, attr, ctypes.sizeof(attr))
 
     def _aggregate_values(self, values: list[V]) -> V:
         """
