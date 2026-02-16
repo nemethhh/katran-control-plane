@@ -549,16 +549,6 @@ class RealManager:
                 )
                 endpoints.append(endpoint)
 
-        # Get old ring for delta calculation
-        old_ring = []
-        if vip.is_allocated:
-            try:
-                old_ring = self._ch_rings_map.read_ring(vip.vip_num)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to read old ring for VIP {vip.key}: {e}"
-                )
-
         # Generate new ring
         if len(endpoints) == 0:
             # All backends drained: use empty ring (index 0 = no backend)
@@ -566,25 +556,15 @@ class RealManager:
         else:
             new_ring = self._ring_builder.build(endpoints)
 
-        # Calculate deltas (only changed positions)
-        updates: dict[int, int] = {}
-        if old_ring and len(old_ring) == len(new_ring):
-            for pos, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
-                if old_val != new_val:
-                    updates[pos] = new_val
-        else:
-            # No old ring or size mismatch: write entire ring
-            for pos, val in enumerate(new_ring):
-                updates[pos] = val
-
-        # Write to BPF ch_rings map
-        # (write_ring with optimize=True will use batch operations)
-        self._ch_rings_map.write_ring(vip.vip_num, new_ring, optimize=True)
+        # Write to BPF ch_rings map without optimization
+        # Note: Unlike C++ version which caches old ring in memory, we would
+        # need to read 65k entries from BPF to optimize. Just write all entries.
+        self._ch_rings_map.write_ring(vip.vip_num, new_ring, optimize=False)
 
         logger.info(
             f"Rebuilt ring for VIP {vip.key}: "
             f"{len(endpoints)} active backends, "
-            f"{len(updates)} positions changed"
+            f"wrote {self._ring_builder.ring_size} positions"
         )
 
     def rebuild_all_rings(self) -> None:

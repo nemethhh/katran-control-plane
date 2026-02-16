@@ -155,9 +155,9 @@ class ChRingsMap(BpfMap[int, int]):
 
         if not optimize:
             # Write entire ring unconditionally
-            with self._lock:
-                for i, real_idx in enumerate(ring):
-                    self.set(base + i, real_idx)
+            # Don't hold lock for entire write - each set() will acquire it briefly
+            for i, real_idx in enumerate(ring):
+                self.set(base + i, real_idx)
             return self._ring_size
 
         # Optimized path: only write changed positions
@@ -252,9 +252,9 @@ class ChRingsMap(BpfMap[int, int]):
         """
         base = self.get_ring_base(vip_num)
 
-        with self._lock:
-            for position, real_idx in updates.items():
-                self.set(base + position, real_idx)
+        # Don't hold lock for entire update - each set() will acquire it briefly
+        for position, real_idx in updates.items():
+            self.set(base + position, real_idx)
 
     def write_ring_incremental(
         self,
