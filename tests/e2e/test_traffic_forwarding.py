@@ -551,7 +551,7 @@ class TestMetricsAccuracy:
         """
         vip1_addr = vip_addr
         vip1_port = TRAFFIC_VIP_PORT
-        vip2_port = 8080
+        vip2_port = 8081  # Use 8081 instead of 8080 (which is the API server port)
 
         try:
             _setup_vip(api_client, vip1_addr, port=vip1_port)
