@@ -7,13 +7,13 @@ These tests exercise the full stack over real HTTP:
 
 import pytest
 
-
 pytestmark = pytest.mark.e2e
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _vip(addr, port, proto):
     """Build a VIP identifier dict."""
@@ -23,6 +23,7 @@ def _vip(addr, port, proto):
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
+
 
 class TestHealth:
     def test_health_endpoint(self, api_client):
@@ -35,13 +36,19 @@ class TestHealth:
 # VIP lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestVipLifecycle:
     def test_vip_crud(self, api_client):
         """Full create -> list -> get -> delete cycle."""
         # Create
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "10.100.0.1", "port": 80, "protocol": "tcp",
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "10.100.0.1",
+                "port": 80,
+                "protocol": "tcp",
+            },
+        )
         assert resp.status_code == 201
         body = resp.json()
         assert body["address"] == "10.100.0.1"
@@ -82,6 +89,7 @@ class TestVipLifecycle:
 # Backend lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestBackendLifecycle:
     def test_backend_crud(self, api_client):
         vip = _vip("10.100.0.20", 80, "tcp")
@@ -92,9 +100,14 @@ class TestBackendLifecycle:
 
         try:
             # Add backend
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.1.1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.1.1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
             assert resp.json()["address"] == "10.0.1.1"
 
@@ -104,9 +117,13 @@ class TestBackendLifecycle:
             assert len(resp.json()["backends"]) == 1
 
             # Drain
-            resp = api_client.post("/api/v1/backends/drain", json={
-                "vip": vip, "address": "10.0.1.1",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/drain",
+                json={
+                    "vip": vip,
+                    "address": "10.0.1.1",
+                },
+            )
             assert resp.status_code == 200
 
             # Verify drained (weight=0)
@@ -115,24 +132,33 @@ class TestBackendLifecycle:
             assert backend["weight"] == 0
 
             # Remove backend
-            resp = api_client.post("/api/v1/backends/remove", json={
-                "vip": vip, "address": "10.0.1.1",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/remove",
+                json={
+                    "vip": vip,
+                    "address": "10.0.1.1",
+                },
+            )
             assert resp.status_code == 200
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
 
     def test_backend_on_missing_vip_404(self, api_client):
-        resp = api_client.post("/api/v1/backends/add", json={
-            "vip": _vip("10.255.255.255", 9999, "tcp"),
-            "address": "10.0.0.1", "weight": 100,
-        })
+        resp = api_client.post(
+            "/api/v1/backends/add",
+            json={
+                "vip": _vip("10.255.255.255", 9999, "tcp"),
+                "address": "10.0.0.1",
+                "weight": 100,
+            },
+        )
         assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
 # VIP error paths
 # ---------------------------------------------------------------------------
+
 
 class TestVipErrors:
     def test_delete_nonexistent_vip_404(self, api_client):
@@ -142,9 +168,14 @@ class TestVipErrors:
 
     def test_invalid_protocol_400(self, api_client):
         """POST VIP with an unsupported protocol should return 400."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "10.100.1.2", "port": 80, "protocol": "sctp",
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "10.100.1.2",
+                "port": 80,
+                "protocol": "sctp",
+            },
+        )
         assert resp.status_code == 400
 
     def test_get_vip_invalid_protocol_400(self, api_client):
@@ -157,12 +188,19 @@ class TestVipErrors:
 # VIP creation variants
 # ---------------------------------------------------------------------------
 
+
 class TestVipCreation:
     def test_vip_with_flags(self, api_client):
         """Create VIP with flags=1, verify in POST and GET responses."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "10.100.2.1", "port": 80, "protocol": "tcp", "flags": 1,
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "10.100.2.1",
+                "port": 80,
+                "protocol": "tcp",
+                "flags": 1,
+            },
+        )
         assert resp.status_code == 201
         try:
             assert resp.json()["flags"] == 1
@@ -175,9 +213,14 @@ class TestVipCreation:
 
     def test_udp_vip_creation(self, api_client):
         """Create UDP VIP, verify protocol in response and GET."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "10.100.2.2", "port": 53, "protocol": "udp",
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "10.100.2.2",
+                "port": 53,
+                "protocol": "udp",
+            },
+        )
         assert resp.status_code == 201
         try:
             assert resp.json()["protocol"] == "udp"
@@ -193,12 +236,18 @@ class TestVipCreation:
 # VIP lifecycle extended
 # ---------------------------------------------------------------------------
 
+
 class TestVipLifecycleExtended:
     def test_vip_recreate_after_delete(self, api_client):
         """Delete VIP, recreate same address -> 201 (index recycling)."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "10.100.3.1", "port": 80, "protocol": "tcp",
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "10.100.3.1",
+                "port": 80,
+                "protocol": "tcp",
+            },
+        )
         assert resp.status_code == 201
 
         try:
@@ -207,9 +256,14 @@ class TestVipLifecycleExtended:
             assert resp.status_code == 200
 
             # Recreate same
-            resp = api_client.post("/api/v1/vips", json={
-                "address": "10.100.3.1", "port": 80, "protocol": "tcp",
-            })
+            resp = api_client.post(
+                "/api/v1/vips",
+                json={
+                    "address": "10.100.3.1",
+                    "port": 80,
+                    "protocol": "tcp",
+                },
+            )
             assert resp.status_code == 201
         finally:
             api_client.post("/api/v1/vips/remove", json=_vip("10.100.3.1", 80, "tcp"))
@@ -248,6 +302,7 @@ class TestVipLifecycleExtended:
 # Backend error paths
 # ---------------------------------------------------------------------------
 
+
 class TestBackendErrors:
     def test_duplicate_backend_409(self, api_client):
         """Add same backend twice -> 409."""
@@ -256,32 +311,48 @@ class TestBackendErrors:
         assert resp.status_code == 201
 
         try:
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.2.1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.2.1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
 
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.2.1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.2.1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 409
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
 
     def test_remove_backend_missing_vip_404(self, api_client):
         """Remove backend on non-existent VIP -> 404."""
-        resp = api_client.post("/api/v1/backends/remove", json={
-            "vip": _vip("10.255.255.254", 9999, "tcp"),
-            "address": "10.0.2.1",
-        })
+        resp = api_client.post(
+            "/api/v1/backends/remove",
+            json={
+                "vip": _vip("10.255.255.254", 9999, "tcp"),
+                "address": "10.0.2.1",
+            },
+        )
         assert resp.status_code == 404
 
     def test_drain_backend_missing_vip_404(self, api_client):
         """Drain on non-existent VIP -> 404."""
-        resp = api_client.post("/api/v1/backends/drain", json={
-            "vip": _vip("10.255.255.254", 9999, "tcp"),
-            "address": "10.0.2.1",
-        })
+        resp = api_client.post(
+            "/api/v1/backends/drain",
+            json={
+                "vip": _vip("10.255.255.254", 9999, "tcp"),
+                "address": "10.0.2.1",
+            },
+        )
         assert resp.status_code == 404
 
     def test_remove_missing_backend_from_existing_vip(self, api_client):
@@ -291,9 +362,13 @@ class TestBackendErrors:
         assert resp.status_code == 201
 
         try:
-            resp = api_client.post("/api/v1/backends/remove", json={
-                "vip": vip, "address": "10.0.2.99",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/remove",
+                json={
+                    "vip": vip,
+                    "address": "10.0.2.99",
+                },
+            )
             assert resp.status_code == 404
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
@@ -305,9 +380,13 @@ class TestBackendErrors:
         assert resp.status_code == 201
 
         try:
-            resp = api_client.post("/api/v1/backends/drain", json={
-                "vip": vip, "address": "10.0.2.99",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/drain",
+                json={
+                    "vip": vip,
+                    "address": "10.0.2.99",
+                },
+            )
             assert resp.status_code == 404
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
@@ -317,6 +396,7 @@ class TestBackendErrors:
 # Backend details
 # ---------------------------------------------------------------------------
 
+
 class TestBackendDetails:
     def test_backend_weight_in_response(self, api_client):
         """Add with weight=75, verify in POST and GET."""
@@ -325,9 +405,14 @@ class TestBackendDetails:
         assert resp.status_code == 201
 
         try:
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.3.1", "weight": 75,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.3.1",
+                    "weight": 75,
+                },
+            )
             assert resp.status_code == 201
             assert resp.json()["weight"] == 75
 
@@ -346,15 +431,25 @@ class TestBackendDetails:
         assert resp.status_code == 201
 
         try:
-            resp1 = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.3.10", "weight": 100,
-            })
+            resp1 = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.3.10",
+                    "weight": 100,
+                },
+            )
             assert resp1.status_code == 201
             idx1 = resp1.json()["index"]
 
-            resp2 = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.3.11", "weight": 100,
-            })
+            resp2 = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.3.11",
+                    "weight": 100,
+                },
+            )
             assert resp2.status_code == 201
             idx2 = resp2.json()["index"]
 
@@ -380,15 +475,25 @@ class TestBackendDetails:
 
         try:
             # Add same backend to both VIPs
-            resp_a = api_client.post("/api/v1/backends/add", json={
-                "vip": vip_a, "address": "10.0.3.20", "weight": 100,
-            })
+            resp_a = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip_a,
+                    "address": "10.0.3.20",
+                    "weight": 100,
+                },
+            )
             assert resp_a.status_code == 201
             idx_a = resp_a.json()["index"]
 
-            resp_b = api_client.post("/api/v1/backends/add", json={
-                "vip": vip_b, "address": "10.0.3.20", "weight": 100,
-            })
+            resp_b = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip_b,
+                    "address": "10.0.3.20",
+                    "weight": 100,
+                },
+            )
             assert resp_b.status_code == 201
             idx_b = resp_b.json()["index"]
 
@@ -418,12 +523,18 @@ class TestBackendDetails:
 # VIP lifecycle (IPv6)
 # ---------------------------------------------------------------------------
 
+
 class TestVipLifecycleV6:
     def test_vip_crud_v6(self, api_client):
         """Full create -> list -> get -> delete cycle with IPv6 VIP."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "fc00::1", "port": 80, "protocol": "tcp",
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "fc00::1",
+                "port": 80,
+                "protocol": "tcp",
+            },
+        )
         assert resp.status_code == 201
         body = resp.json()
         assert body["address"] == "fc00::1"
@@ -463,6 +574,7 @@ class TestVipLifecycleV6:
 # Backend lifecycle (IPv6)
 # ---------------------------------------------------------------------------
 
+
 class TestBackendLifecycleV6:
     def test_backend_crud_v6(self, api_client):
         """IPv6 backend add/drain/remove on IPv6 VIP."""
@@ -472,9 +584,14 @@ class TestBackendLifecycleV6:
 
         try:
             # Add IPv6 backend
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "fc00:1::1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "fc00:1::1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
             assert resp.json()["address"] == "fc00:1::1"
 
@@ -484,9 +601,13 @@ class TestBackendLifecycleV6:
             assert len(resp.json()["backends"]) == 1
 
             # Drain
-            resp = api_client.post("/api/v1/backends/drain", json={
-                "vip": vip, "address": "fc00:1::1",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/drain",
+                json={
+                    "vip": vip,
+                    "address": "fc00:1::1",
+                },
+            )
             assert resp.status_code == 200
 
             # Verify drained (weight=0)
@@ -495,18 +616,26 @@ class TestBackendLifecycleV6:
             assert backend["weight"] == 0
 
             # Remove backend
-            resp = api_client.post("/api/v1/backends/remove", json={
-                "vip": vip, "address": "fc00:1::1",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/remove",
+                json={
+                    "vip": vip,
+                    "address": "fc00:1::1",
+                },
+            )
             assert resp.status_code == 200
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
 
     def test_backend_on_missing_v6_vip_404(self, api_client):
-        resp = api_client.post("/api/v1/backends/add", json={
-            "vip": _vip("fc00::ffff", 9999, "tcp"),
-            "address": "fc00:1::1", "weight": 100,
-        })
+        resp = api_client.post(
+            "/api/v1/backends/add",
+            json={
+                "vip": _vip("fc00::ffff", 9999, "tcp"),
+                "address": "fc00:1::1",
+                "weight": 100,
+            },
+        )
         assert resp.status_code == 404
 
 
@@ -514,12 +643,18 @@ class TestBackendLifecycleV6:
 # VIP creation variants (IPv6)
 # ---------------------------------------------------------------------------
 
+
 class TestVipCreationV6:
     def test_udp_v6_vip(self, api_client):
         """Create UDP IPv6 VIP, verify protocol in response and GET."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "fc00::30", "port": 53, "protocol": "udp",
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "fc00::30",
+                "port": 53,
+                "protocol": "udp",
+            },
+        )
         assert resp.status_code == 201
         try:
             assert resp.json()["protocol"] == "udp"
@@ -532,9 +667,15 @@ class TestVipCreationV6:
 
     def test_v6_vip_with_flags(self, api_client):
         """Create IPv6 VIP with flags=1, verify in POST and GET."""
-        resp = api_client.post("/api/v1/vips", json={
-            "address": "fc00::31", "port": 80, "protocol": "tcp", "flags": 1,
-        })
+        resp = api_client.post(
+            "/api/v1/vips",
+            json={
+                "address": "fc00::31",
+                "port": 80,
+                "protocol": "tcp",
+                "flags": 1,
+            },
+        )
         assert resp.status_code == 201
         try:
             assert resp.json()["flags"] == 1
@@ -550,6 +691,7 @@ class TestVipCreationV6:
 # Mixed addressing (IPv4 VIP + IPv6 backend and vice versa)
 # ---------------------------------------------------------------------------
 
+
 class TestMixedAddressing:
     def test_v6_vip_v4_backend(self, api_client):
         """IPv6 VIP with IPv4 backend."""
@@ -557,9 +699,14 @@ class TestMixedAddressing:
         resp = api_client.post("/api/v1/vips", json=vip)
         assert resp.status_code == 201
         try:
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.10.1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.10.1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
             assert resp.json()["address"] == "10.0.10.1"
         finally:
@@ -571,9 +718,14 @@ class TestMixedAddressing:
         resp = api_client.post("/api/v1/vips", json=vip)
         assert resp.status_code == 201
         try:
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "fc00:2::1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "fc00:2::1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
             assert resp.json()["address"] == "fc00:2::1"
         finally:
@@ -585,14 +737,24 @@ class TestMixedAddressing:
         resp = api_client.post("/api/v1/vips", json=vip)
         assert resp.status_code == 201
         try:
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.10.2", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.10.2",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
 
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "fc00:2::2", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "fc00:2::2",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
 
             # Verify both backends present
@@ -609,6 +771,7 @@ class TestMixedAddressing:
 # ===========================================================================
 # Prometheus Metrics tests
 # ===========================================================================
+
 
 class TestMetricsE2E:
     """Test Prometheus /metrics endpoint integration."""
@@ -648,9 +811,14 @@ class TestMetricsE2E:
         assert resp.status_code == 201
 
         try:
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.50.1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.50.1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
 
             # Scrape metrics
@@ -671,7 +839,9 @@ class TestMetricsE2E:
             assert 'protocol="tcp"' in content
 
             # Verify backend count gauge
-            assert 'katran_vip_backends{address="10.200.0.1",port="8080",protocol="tcp"} 1' in content
+            assert (
+                'katran_vip_backends{address="10.200.0.1",port="8080",protocol="tcp"} 1' in content
+            )
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
 
@@ -694,7 +864,8 @@ class TestMetricsE2E:
 
         # Extract initial VIP count from metrics
         import re
-        match = re.search(r'katran_vips_configured (\d+(?:\.\d+)?)', initial_content)
+
+        match = re.search(r"katran_vips_configured (\d+(?:\.\d+)?)", initial_content)
         assert match, "katran_vips_configured not found in metrics"
         initial_count = int(float(match.group(1)))
 
@@ -709,13 +880,14 @@ class TestMetricsE2E:
             updated_content = resp.text
 
             # Extract updated VIP count
-            match = re.search(r'katran_vips_configured (\d+(?:\.\d+)?)', updated_content)
+            match = re.search(r"katran_vips_configured (\d+(?:\.\d+)?)", updated_content)
             assert match, "katran_vips_configured not found in updated metrics"
             updated_count = int(float(match.group(1)))
 
             # Verify count increased by 1
-            assert updated_count == initial_count + 1, \
+            assert updated_count == initial_count + 1, (
                 f"Expected VIP count to increase from {initial_count} to {initial_count + 1}, got {updated_count}"
+            )
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)
 
@@ -731,38 +903,60 @@ class TestMetricsE2E:
             # Initially should have 0 backends
             resp = api_client.get("/metrics/")
             content = resp.text
-            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 0' in content
+            assert (
+                'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 0' in content
+            )
 
             # Add first backend
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.60.1", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.60.1",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
 
             resp = api_client.get("/metrics/")
             content = resp.text
-            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 1' in content
+            assert (
+                'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 1' in content
+            )
 
             # Add second backend
-            resp = api_client.post("/api/v1/backends/add", json={
-                "vip": vip, "address": "10.0.60.2", "weight": 100,
-            })
+            resp = api_client.post(
+                "/api/v1/backends/add",
+                json={
+                    "vip": vip,
+                    "address": "10.0.60.2",
+                    "weight": 100,
+                },
+            )
             assert resp.status_code == 201
 
             resp = api_client.get("/metrics/")
             content = resp.text
-            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 2' in content
+            assert (
+                'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 2' in content
+            )
 
             # Drain one backend (should still count as 2 backends, but only 1 active)
             # Actually, active_reals only counts weight > 0, so draining should reduce count
-            resp = api_client.post("/api/v1/backends/drain", json={
-                "vip": vip, "address": "10.0.60.1",
-            })
+            resp = api_client.post(
+                "/api/v1/backends/drain",
+                json={
+                    "vip": vip,
+                    "address": "10.0.60.1",
+                },
+            )
             assert resp.status_code == 200
 
             resp = api_client.get("/metrics/")
             content = resp.text
             # After draining, only 1 backend should be active (weight > 0)
-            assert 'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 1' in content
+            assert (
+                'katran_vip_backends{address="10.202.0.1",port="9091",protocol="tcp"} 1' in content
+            )
         finally:
             api_client.post("/api/v1/vips/remove", json=vip)

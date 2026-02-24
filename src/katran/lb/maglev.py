@@ -26,7 +26,6 @@ from typing import Sequence
 
 from katran.core.constants import RING_SIZE
 
-
 # =============================================================================
 # MurmurHash3 Implementation
 # =============================================================================
@@ -327,7 +326,9 @@ class MaglevHashRing:
         """
         return self._ring.copy()
 
-    def rebuild(self, endpoints: Sequence[Endpoint]) -> tuple[list[int], dict[int, tuple[int, int]]]:
+    def rebuild(
+        self, endpoints: Sequence[Endpoint]
+    ) -> tuple[list[int], dict[int, tuple[int, int]]]:
         """
         Rebuild ring and compute changes from previous ring.
 
@@ -417,9 +418,7 @@ def hash_endpoint_address(address: str) -> int:
     return murmur_hash3_x64_64(base_hash, len(address), 0)
 
 
-def compute_ring_changes(
-    old_ring: list[int], new_ring: list[int]
-) -> tuple[int, float]:
+def compute_ring_changes(old_ring: list[int], new_ring: list[int]) -> tuple[int, float]:
     """
     Compute the number of positions that changed between two rings.
 
@@ -441,9 +440,7 @@ def compute_ring_changes(
     return changed, percentage
 
 
-def compute_ring_updates(
-    old_ring: list[int], new_ring: list[int]
-) -> dict[int, int]:
+def compute_ring_updates(old_ring: list[int], new_ring: list[int]) -> dict[int, int]:
     """
     Compute positions that need to be updated when changing rings.
 

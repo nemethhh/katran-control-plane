@@ -6,8 +6,9 @@ followed by test_multiple_vips_separate_counters.
 Run from test-client container with e2e environment running.
 """
 
-import time
 import sys
+import time
+
 import httpx
 
 # Configuration
@@ -25,21 +26,31 @@ def log(msg):
 def _setup_vip(api_client, vip_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
     """Create a VIP, return True if created (or already exists)."""
     log(f"Creating VIP {vip_addr}:{port}/{proto}")
-    resp = api_client.post("/api/v1/vips", json={
-        "address": vip_addr, "port": port, "protocol": proto,
-    })
+    resp = api_client.post(
+        "/api/v1/vips",
+        json={
+            "address": vip_addr,
+            "port": port,
+            "protocol": proto,
+        },
+    )
     assert resp.status_code in (201, 409), f"Unexpected status: {resp.status_code}"
     log(f"  → Status: {resp.status_code}")
 
 
-def _add_backend(api_client, vip_addr, backend_addr, weight=100,
-                 port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
+def _add_backend(
+    api_client, vip_addr, backend_addr, weight=100, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO
+):
     log(f"Adding backend {backend_addr} to VIP {vip_addr}:{port}/{proto}")
     start = time.time()
-    resp = api_client.post("/api/v1/backends/add", json={
-        "vip": {"address": vip_addr, "port": port, "protocol": proto},
-        "address": backend_addr, "weight": weight,
-    })
+    resp = api_client.post(
+        "/api/v1/backends/add",
+        json={
+            "vip": {"address": vip_addr, "port": port, "protocol": proto},
+            "address": backend_addr,
+            "weight": weight,
+        },
+    )
     elapsed = time.time() - start
     assert resp.status_code in (201, 409), f"Unexpected status: {resp.status_code}"
     log(f"  → Status: {resp.status_code}, took {elapsed:.2f}s")
@@ -55,7 +66,7 @@ def _send_requests(vip_addr, count=10, port=TRAFFIC_VIP_PORT):
             resp.raise_for_status()
             results.append(resp.json())
         except Exception as e:
-            log(f"  Request {i+1}/{count} failed: {e}")
+            log(f"  Request {i + 1}/{count} failed: {e}")
             results.append(None)
     return results
 
@@ -83,13 +94,21 @@ def test_1_global_counter(api_client):
     log(f"  → Metrics status: {resp.status_code}")
 
     log("Cleaning up...")
-    api_client.post("/api/v1/backends/remove", json={
-        "vip": {"address": vip_addr, "port": TRAFFIC_VIP_PORT, "protocol": TRAFFIC_VIP_PROTO},
-        "address": backend_addr,
-    })
-    api_client.post("/api/v1/vips/remove", json={
-        "address": vip_addr, "port": TRAFFIC_VIP_PORT, "protocol": TRAFFIC_VIP_PROTO,
-    })
+    api_client.post(
+        "/api/v1/backends/remove",
+        json={
+            "vip": {"address": vip_addr, "port": TRAFFIC_VIP_PORT, "protocol": TRAFFIC_VIP_PROTO},
+            "address": backend_addr,
+        },
+    )
+    api_client.post(
+        "/api/v1/vips/remove",
+        json={
+            "address": vip_addr,
+            "port": TRAFFIC_VIP_PORT,
+            "protocol": TRAFFIC_VIP_PROTO,
+        },
+    )
 
     log("✓ TEST 1 COMPLETED\n")
 
@@ -135,16 +154,24 @@ def test_2_multiple_vips(api_client):
         log("Cleanup...")
         for port in (vip1_port, vip2_port):
             try:
-                api_client.post("/api/v1/backends/remove", json={
-                    "vip": {"address": vip1_addr, "port": port, "protocol": TRAFFIC_VIP_PROTO},
-                    "address": backend_addr,
-                })
+                api_client.post(
+                    "/api/v1/backends/remove",
+                    json={
+                        "vip": {"address": vip1_addr, "port": port, "protocol": TRAFFIC_VIP_PROTO},
+                        "address": backend_addr,
+                    },
+                )
             except Exception:
                 pass
             try:
-                api_client.post("/api/v1/vips/remove", json={
-                    "address": vip1_addr, "port": port, "protocol": TRAFFIC_VIP_PROTO,
-                })
+                api_client.post(
+                    "/api/v1/vips/remove",
+                    json={
+                        "address": vip1_addr,
+                        "port": port,
+                        "protocol": TRAFFIC_VIP_PROTO,
+                    },
+                )
             except Exception:
                 pass
 
@@ -186,6 +213,7 @@ def main():
     except Exception as e:
         log(f"\n✗ TEST FAILED: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

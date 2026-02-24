@@ -2,18 +2,18 @@
 
 from katran.bpf.map_manager import (
     BpfMap,
-    PerCpuBpfMap,
     BpfMapType,
     IndexAllocator,
+    PerCpuBpfMap,
 )
 from katran.bpf.maps import (
-    VipMap,
-    RealsMap,
     ChRingsMap,
-    StatsMap,
     CtlArray,
     HcRealsMap,
     LruMap,
+    RealsMap,
+    StatsMap,
+    VipMap,
 )
 
 __all__ = [

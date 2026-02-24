@@ -28,6 +28,7 @@ def pytest_collection_modifyitems(config, items):
 # Configuration fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def api_url() -> str:
     return os.environ.get("KATRAN_API_URL", "http://katran-lb:8080")
@@ -66,6 +67,7 @@ def backend_2_addr6() -> str:
 # ---------------------------------------------------------------------------
 # HTTP client fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def api_client(api_url) -> httpx.Client:

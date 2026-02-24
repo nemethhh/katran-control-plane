@@ -15,7 +15,6 @@ from collections import Counter
 import httpx
 import pytest
 
-
 pytestmark = pytest.mark.e2e
 
 # VIP we'll use for traffic tests (the LB's own IP, port 80)
@@ -27,44 +26,68 @@ TRAFFIC_VIP_PROTO = "tcp"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _setup_vip(api_client, vip_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
     """Create a VIP, return True if created (or already exists)."""
-    resp = api_client.post("/api/v1/vips", json={
-        "address": vip_addr, "port": port, "protocol": proto,
-    })
+    resp = api_client.post(
+        "/api/v1/vips",
+        json={
+            "address": vip_addr,
+            "port": port,
+            "protocol": proto,
+        },
+    )
     assert resp.status_code in (201, 409), f"Unexpected status: {resp.status_code}"
 
 
 def _teardown_vip(api_client, vip_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
     """Remove VIP (ignore 404)."""
-    api_client.post("/api/v1/vips/remove", json={
-        "address": vip_addr, "port": port, "protocol": proto,
-    })
+    api_client.post(
+        "/api/v1/vips/remove",
+        json={
+            "address": vip_addr,
+            "port": port,
+            "protocol": proto,
+        },
+    )
 
 
-def _add_backend(api_client, vip_addr, backend_addr, weight=100,
-                 port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
-    resp = api_client.post("/api/v1/backends/add", json={
-        "vip": {"address": vip_addr, "port": port, "protocol": proto},
-        "address": backend_addr, "weight": weight,
-    })
+def _add_backend(
+    api_client, vip_addr, backend_addr, weight=100, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO
+):
+    resp = api_client.post(
+        "/api/v1/backends/add",
+        json={
+            "vip": {"address": vip_addr, "port": port, "protocol": proto},
+            "address": backend_addr,
+            "weight": weight,
+        },
+    )
     assert resp.status_code in (201, 409), f"Unexpected status: {resp.status_code}"
 
 
-def _remove_backend(api_client, vip_addr, backend_addr,
-                    port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
-    api_client.post("/api/v1/backends/remove", json={
-        "vip": {"address": vip_addr, "port": port, "protocol": proto},
-        "address": backend_addr,
-    })
+def _remove_backend(
+    api_client, vip_addr, backend_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO
+):
+    api_client.post(
+        "/api/v1/backends/remove",
+        json={
+            "vip": {"address": vip_addr, "port": port, "protocol": proto},
+            "address": backend_addr,
+        },
+    )
 
 
-def _drain_backend(api_client, vip_addr, backend_addr,
-                   port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO):
-    resp = api_client.post("/api/v1/backends/drain", json={
-        "vip": {"address": vip_addr, "port": port, "protocol": proto},
-        "address": backend_addr,
-    })
+def _drain_backend(
+    api_client, vip_addr, backend_addr, port=TRAFFIC_VIP_PORT, proto=TRAFFIC_VIP_PROTO
+):
+    resp = api_client.post(
+        "/api/v1/backends/drain",
+        json={
+            "vip": {"address": vip_addr, "port": port, "protocol": proto},
+            "address": backend_addr,
+        },
+    )
     assert resp.status_code == 200
 
 
@@ -109,10 +132,10 @@ def _parse_metric_value(content, metric_name, labels=None):
         # Build label matcher like: address="10.0.0.1",port="80",protocol="tcp"
         label_parts = [f'{k}="{v}"' for k, v in sorted(labels.items())]
         label_str = ",".join(label_parts)
-        pattern = rf'{metric_name}\{{{label_str}\}}\s+(\d+(?:\.\d+)?)'
+        pattern = rf"{metric_name}\{{{label_str}\}}\s+(\d+(?:\.\d+)?)"
     else:
         # Match metric without labels
-        pattern = rf'^{metric_name}\s+(\d+(?:\.\d+)?)$'
+        pattern = rf"^{metric_name}\s+(\d+(?:\.\d+)?)$"
 
     match = re.search(pattern, content, re.MULTILINE)
     if match:
@@ -123,6 +146,7 @@ def _parse_metric_value(content, metric_name, labels=None):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestBasicForwarding:
     """Verify a single backend receives traffic through the XDP path."""
@@ -147,8 +171,7 @@ class TestBasicForwarding:
 class TestMultiBackendDistribution:
     """Verify traffic distributes across multiple backends."""
 
-    def test_two_backend_distribution(self, api_client, vip_addr,
-                                     backend_1_addr, backend_2_addr):
+    def test_two_backend_distribution(self, api_client, vip_addr, backend_1_addr, backend_2_addr):
         """Add 2 backends -> send N requests -> verify both receive traffic."""
         _setup_vip(api_client, vip_addr)
         _add_backend(api_client, vip_addr, backend_1_addr)
@@ -178,8 +201,7 @@ class TestMultiBackendDistribution:
 class TestDrainShiftsTraffic:
     """Verify draining a backend shifts traffic to remaining backends."""
 
-    def test_drain_stops_traffic(self, api_client, vip_addr,
-                                backend_1_addr, backend_2_addr):
+    def test_drain_stops_traffic(self, api_client, vip_addr, backend_1_addr, backend_2_addr):
         """Drain one backend -> verify all traffic goes to the other."""
         _setup_vip(api_client, vip_addr)
         _add_backend(api_client, vip_addr, backend_1_addr)
@@ -207,8 +229,7 @@ class TestDrainShiftsTraffic:
 class TestRemoveBackend:
     """Verify removing a backend redistributes traffic."""
 
-    def test_remove_shifts_traffic(self, api_client, vip_addr,
-                                  backend_1_addr, backend_2_addr):
+    def test_remove_shifts_traffic(self, api_client, vip_addr, backend_1_addr, backend_2_addr):
         """Remove one backend -> verify remaining backend gets all traffic."""
         _setup_vip(api_client, vip_addr)
         _add_backend(api_client, vip_addr, backend_1_addr)
@@ -282,8 +303,9 @@ class TestVipRecreateTraffic:
 class TestAllDrainedDrops:
     """Verify that draining all backends causes traffic to fail."""
 
-    def test_all_backends_drained_drops_traffic(self, api_client, vip_addr,
-                                                 backend_1_addr, backend_2_addr):
+    def test_all_backends_drained_drops_traffic(
+        self, api_client, vip_addr, backend_1_addr, backend_2_addr
+    ):
         """Drain all backends -> connection fails."""
         _setup_vip(api_client, vip_addr)
         _add_backend(api_client, vip_addr, backend_1_addr)
@@ -307,8 +329,9 @@ class TestAllDrainedDrops:
 class TestReaddBackendTraffic:
     """Verify removing and re-adding a backend restores traffic."""
 
-    def test_readd_backend_after_removal_traffic_resumes(self, api_client, vip_addr,
-                                                          backend_1_addr):
+    def test_readd_backend_after_removal_traffic_resumes(
+        self, api_client, vip_addr, backend_1_addr
+    ):
         """Remove backend, re-add it, traffic still works."""
         _setup_vip(api_client, vip_addr)
         _add_backend(api_client, vip_addr, backend_1_addr)
@@ -339,6 +362,7 @@ class TestReaddBackendTraffic:
 # IPv6 traffic tests
 # ===========================================================================
 
+
 class TestBasicForwardingV6:
     """Verify a single IPv6 backend receives traffic through the XDP path."""
 
@@ -360,8 +384,9 @@ class TestBasicForwardingV6:
 class TestMultiBackendDistributionV6:
     """Verify IPv6 traffic distributes across multiple backends."""
 
-    def test_two_backend_distribution_v6(self, api_client, vip_addr6,
-                                         backend_1_addr6, backend_2_addr6):
+    def test_two_backend_distribution_v6(
+        self, api_client, vip_addr6, backend_1_addr6, backend_2_addr6
+    ):
         """Add 2 IPv6 backends -> send N requests -> verify both receive traffic."""
         _setup_vip(api_client, vip_addr6)
         _add_backend(api_client, vip_addr6, backend_1_addr6)
@@ -388,8 +413,7 @@ class TestMultiBackendDistributionV6:
 class TestDrainShiftsTrafficV6:
     """Verify draining an IPv6 backend shifts traffic to remaining backends."""
 
-    def test_drain_stops_traffic_v6(self, api_client, vip_addr6,
-                                    backend_1_addr6, backend_2_addr6):
+    def test_drain_stops_traffic_v6(self, api_client, vip_addr6, backend_1_addr6, backend_2_addr6):
         """Drain one IPv6 backend -> verify all traffic goes to the other."""
         _setup_vip(api_client, vip_addr6)
         _add_backend(api_client, vip_addr6, backend_1_addr6)
@@ -417,12 +441,11 @@ class TestDrainShiftsTrafficV6:
 # Metrics Validation Tests
 # ===========================================================================
 
+
 class TestMetricsAccuracy:
     """Verify metrics accurately reflect real traffic forwarding."""
 
-    def test_vip_packet_counter_increases_with_traffic(
-        self, api_client, vip_addr, backend_1_addr
-    ):
+    def test_vip_packet_counter_increases_with_traffic(self, api_client, vip_addr, backend_1_addr):
         """Send real traffic and verify VIP packet counter increases."""
         _setup_vip(api_client, vip_addr)
         _add_backend(api_client, vip_addr, backend_1_addr)
@@ -443,14 +466,12 @@ class TestMetricsAccuracy:
             initial_packets = _parse_metric_value(
                 initial_content, "katran_vip_packets_total", labels
             )
-            initial_bytes = _parse_metric_value(
-                initial_content, "katran_vip_bytes_total", labels
-            )
+            initial_bytes = _parse_metric_value(initial_content, "katran_vip_bytes_total", labels)
 
             # Send traffic
             results = _send_requests(vip_addr, count=10)
             successful = [r for r in results if r is not None]
-            assert len(successful) >= 5, f"Expected at least 5 successful requests"
+            assert len(successful) >= 5, "Expected at least 5 successful requests"
 
             # Wait a moment for stats to propagate
             time.sleep(1)
@@ -463,9 +484,7 @@ class TestMetricsAccuracy:
             updated_packets = _parse_metric_value(
                 updated_content, "katran_vip_packets_total", labels
             )
-            updated_bytes = _parse_metric_value(
-                updated_content, "katran_vip_bytes_total", labels
-            )
+            updated_bytes = _parse_metric_value(updated_content, "katran_vip_bytes_total", labels)
 
             # Verify counters increased
             if initial_packets is not None and updated_packets is not None:
@@ -498,12 +517,8 @@ class TestMetricsAccuracy:
             assert resp.status_code == 200
             initial_content = resp.text
 
-            initial_packets = _parse_metric_value(
-                initial_content, "katran_packets_total"
-            )
-            initial_bytes = _parse_metric_value(
-                initial_content, "katran_bytes_total"
-            )
+            initial_packets = _parse_metric_value(initial_content, "katran_packets_total")
+            initial_bytes = _parse_metric_value(initial_content, "katran_bytes_total")
 
             # Send traffic
             results = _send_requests(vip_addr, count=10)
@@ -516,12 +531,8 @@ class TestMetricsAccuracy:
             resp = api_client.get("/metrics/")
             updated_content = resp.text
 
-            updated_packets = _parse_metric_value(
-                updated_content, "katran_packets_total"
-            )
-            updated_bytes = _parse_metric_value(
-                updated_content, "katran_bytes_total"
-            )
+            updated_packets = _parse_metric_value(updated_content, "katran_packets_total")
+            updated_bytes = _parse_metric_value(updated_content, "katran_bytes_total")
 
             # Verify global counters increased
             if initial_packets is not None and updated_packets is not None:
@@ -540,9 +551,7 @@ class TestMetricsAccuracy:
             _remove_backend(api_client, vip_addr, backend_1_addr)
             _teardown_vip(api_client, vip_addr)
 
-    def test_multiple_vips_separate_counters(
-        self, api_client, vip_addr, backend_1_addr
-    ):
+    def test_multiple_vips_separate_counters(self, api_client, vip_addr, backend_1_addr):
         """Verify different VIPs have independent packet counters.
 
         Creates two VIPs on different ports and verifies each gets its own
@@ -585,12 +594,8 @@ class TestMetricsAccuracy:
                 "protocol": TRAFFIC_VIP_PROTO,
             }
 
-            packets1 = _parse_metric_value(
-                content, "katran_vip_packets_total", labels1
-            )
-            packets2 = _parse_metric_value(
-                content, "katran_vip_packets_total", labels2
-            )
+            packets1 = _parse_metric_value(content, "katran_vip_packets_total", labels1)
+            packets2 = _parse_metric_value(content, "katran_vip_packets_total", labels2)
 
             # Both metrics should exist
             assert packets1 is not None, "VIP1 metrics should exist"

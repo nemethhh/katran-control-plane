@@ -5,17 +5,16 @@ Tests VIP lifecycle management including CRUD operations,
 index allocation, and state synchronization.
 """
 
-import pytest
 from ipaddress import IPv4Address, IPv6Address
-from unittest.mock import Mock, MagicMock, call
 
-from katran.lb.vip_manager import VipManager
-from katran.core.constants import Protocol, VipFlags, MAX_VIPS
-from katran.core.types import Vip, VipKey, VipMeta
+import pytest
+
+from katran.core.constants import MAX_VIPS, Protocol, VipFlags
 from katran.core.exceptions import (
     VipExistsError,
-    ResourceExhaustedError,
 )
+from katran.core.types import VipKey
+from katran.lb.vip_manager import VipManager
 
 
 class TestVipManagerInit:
@@ -94,9 +93,7 @@ class TestVipManagerAddVip:
         assert "10.200.1.1" in str(exc_info.value)
         assert "80" in str(exc_info.value)
 
-    def test_add_vip_initializes_empty_ring(
-        self, vip_manager, mock_ch_rings_map
-    ):
+    def test_add_vip_initializes_empty_ring(self, vip_manager, mock_ch_rings_map):
         """Test adding VIP initializes empty hash ring."""
         vip = vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
 
@@ -140,9 +137,7 @@ class TestVipManagerRemoveVip:
         """Test removing VIP by address/port/protocol."""
         vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
 
-        result = vip_manager.remove_vip(
-            address="10.200.1.1", port=80, protocol="tcp"
-        )
+        result = vip_manager.remove_vip(address="10.200.1.1", port=80, protocol="tcp")
 
         assert result is True
         assert vip_manager.get_vip_count() == 0
@@ -193,18 +188,14 @@ class TestVipManagerGetVip:
         """Test getting VIP by address/port/protocol."""
         vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
 
-        vip = vip_manager.get_vip(
-            address="10.200.1.1", port=80, protocol="tcp"
-        )
+        vip = vip_manager.get_vip(address="10.200.1.1", port=80, protocol="tcp")
 
         assert vip is not None
         assert vip.key.address == IPv4Address("10.200.1.1")
 
     def test_get_nonexistent_vip_returns_none(self, vip_manager):
         """Test getting nonexistent VIP returns None."""
-        vip = vip_manager.get_vip(
-            address="10.200.1.1", port=80, protocol="tcp"
-        )
+        vip = vip_manager.get_vip(address="10.200.1.1", port=80, protocol="tcp")
 
         assert vip is None
 
@@ -237,16 +228,12 @@ class TestVipManagerModifyFlags:
         """Test modifying VIP flags."""
         vip = vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
 
-        result = vip_manager.modify_flags(
-            vip.key, VipFlags.NO_SRC_PORT | VipFlags.NO_LRU
-        )
+        result = vip_manager.modify_flags(vip.key, VipFlags.NO_SRC_PORT | VipFlags.NO_LRU)
 
         assert result is True
         assert vip.flags == (VipFlags.NO_SRC_PORT | VipFlags.NO_LRU)
 
-    def test_modify_flags_updates_bpf_map(
-        self, vip_manager, mock_vip_map
-    ):
+    def test_modify_flags_updates_bpf_map(self, vip_manager, mock_vip_map):
         """Test modifying flags updates BPF map."""
         vip = vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
         mock_vip_map.reset_mock()
@@ -276,9 +263,7 @@ class TestVipManagerQueries:
         vip = vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
 
         assert vip_manager.vip_exists(vip.key)
-        assert not vip_manager.vip_exists(
-            VipKey(IPv4Address("10.200.1.2"), 80, Protocol.TCP)
-        )
+        assert not vip_manager.vip_exists(VipKey(IPv4Address("10.200.1.2"), 80, Protocol.TCP))
 
     def test_get_vip_count(self, vip_manager):
         """Test get_vip_count method."""
@@ -369,10 +354,7 @@ class TestVipManagerThreadSafety:
                 results.append(("error", str(e)))
 
         # Create threads
-        threads = [
-            threading.Thread(target=add_vip, args=(f"10.200.1.{i}",))
-            for i in range(1, 11)
-        ]
+        threads = [threading.Thread(target=add_vip, args=(f"10.200.1.{i}",)) for i in range(1, 11)]
 
         # Start all threads
         for t in threads:

@@ -1,12 +1,11 @@
 """Unit tests for Prometheus metrics collector."""
 
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import Mock
 
 import pytest
-from prometheus_client import CollectorRegistry
 
 from katran.bpf.maps.stats_map import GlobalStatistics, VipStatistics
-from katran.core.constants import Protocol, StatsCounterIndex
+from katran.core.constants import Protocol
 from katran.core.types import LbStats
 from katran.stats.collector import KatranMetricsCollector
 
@@ -409,7 +408,6 @@ class TestMetricsEndpoint:
 
     def test_metrics_endpoint_returns_200(self, mock_service):
         """GET /metrics should return 200 with Prometheus content-type."""
-        from httpx import AsyncClient
 
         from katran.api.rest.app import create_app
 

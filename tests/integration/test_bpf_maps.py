@@ -11,21 +11,20 @@ Prerequisites:
 Run via: ./tests/integration/run-tests.sh
 """
 
-import pytest
+from ipaddress import IPv4Address
 from pathlib import Path
-from ipaddress import IPv4Address, IPv6Address
 
-from katran.core.constants import Protocol, VipFlags, RealFlags
+import pytest
+
+from katran.core.constants import Protocol, RealFlags
 from katran.core.types import (
-    VipKey,
-    VipMeta,
-    RealDefinition,
+    REAL_DEFINITION_SIZE,
+    VIP_KEY_SIZE,
     CtlValue,
     LbStats,
+    RealDefinition,
     Vip,
-    VIP_KEY_SIZE,
-    VIP_META_SIZE,
-    REAL_DEFINITION_SIZE,
+    VipKey,
 )
 
 
@@ -284,7 +283,7 @@ class TestMaglevIntegration:
 
     def test_maglev_ring_generation(self) -> None:
         """Test Maglev ring can be generated."""
-        from katran.lb.maglev import MaglevHashRing, Endpoint, hash_endpoint_address
+        from katran.lb.maglev import Endpoint, MaglevHashRing, hash_endpoint_address
 
         ring = MaglevHashRing(ring_size=1009)
         endpoints = [
@@ -307,7 +306,12 @@ class TestMaglevIntegration:
 
     def test_maglev_minimal_disruption(self) -> None:
         """Test Maglev minimal disruption property."""
-        from katran.lb.maglev import MaglevHashRing, Endpoint, hash_endpoint_address, compute_ring_changes
+        from katran.lb.maglev import (
+            Endpoint,
+            MaglevHashRing,
+            compute_ring_changes,
+            hash_endpoint_address,
+        )
 
         # Build initial ring
         ring1 = MaglevHashRing(ring_size=1009)

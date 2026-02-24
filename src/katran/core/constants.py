@@ -8,7 +8,6 @@ These values must stay synchronized with:
 
 from enum import IntEnum, IntFlag
 
-
 # =============================================================================
 # Map Size Constants
 # =============================================================================

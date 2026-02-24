@@ -18,9 +18,9 @@ import struct
 from katran.bpf.map_manager import BpfMap, IndexAllocator
 from katran.core.constants import MAX_REALS
 from katran.core.types import (
-    RealDefinition,
-    Real,
     REAL_DEFINITION_SIZE,
+    Real,
+    RealDefinition,
 )
 
 

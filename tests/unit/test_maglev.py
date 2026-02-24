@@ -10,19 +10,19 @@ Tests verify:
 - Deterministic ring generation
 """
 
-import pytest
-from collections import Counter
 
+import pytest
+
+from katran.core.constants import RING_SIZE
 from katran.lb.maglev import (
-    MaglevHashRing,
     Endpoint,
-    hash_endpoint_address,
+    MaglevHashRing,
+    _is_prime,
     compute_ring_changes,
     compute_ring_updates,
+    hash_endpoint_address,
     murmur_hash3_x64_64,
-    _is_prime,
 )
-from katran.core.constants import RING_SIZE
 
 
 class TestPrimeValidation:
@@ -155,8 +155,7 @@ class TestUniformDistribution:
         """Equal weights produce roughly equal distribution."""
         ring = MaglevHashRing(ring_size=10009)  # Larger ring for better stats
         endpoints = [
-            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}"))
-            for i in range(5)
+            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}")) for i in range(5)
         ]
         ring.build(endpoints)
 
@@ -209,8 +208,7 @@ class TestMinimalDisruption:
         # Initial ring with 3 backends
         ring1 = MaglevHashRing(ring_size=10009)
         endpoints1 = [
-            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}"))
-            for i in range(3)
+            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}")) for i in range(3)
         ]
         old_ring = ring1.build(endpoints1)
 
@@ -233,8 +231,7 @@ class TestMinimalDisruption:
         # Initial ring with 4 backends
         ring1 = MaglevHashRing(ring_size=10009)
         endpoints1 = [
-            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}"))
-            for i in range(4)
+            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}")) for i in range(4)
         ]
         old_ring = ring1.build(endpoints1)
 
@@ -466,8 +463,7 @@ class TestRingRebuildOptimization:
 
         # Initial 3 backends
         endpoints1 = [
-            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}"))
-            for i in range(3)
+            Endpoint(num=i, weight=100, hash=hash_endpoint_address(f"10.0.0.{i}")) for i in range(3)
         ]
         ring.build(endpoints1)
 

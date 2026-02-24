@@ -1,48 +1,48 @@
 """Core module containing types, constants, exceptions, config, and logging."""
 
 from katran.core.config import KatranConfig
-from katran.core.logging import get_logger, setup_logging
 from katran.core.constants import (
-    RING_SIZE,
-    MAX_VIPS,
-    MAX_REALS,
-    MAX_SUPPORTED_CPUS,
     CH_RINGS_SIZE,
-    STATS_MAP_SIZE,
     CTL_MAP_SIZE,
     DEFAULT_LRU_SIZE,
-    Protocol,
-    VipFlags,
-    RealFlags,
-    PacketFlags,
-    StatsCounterIndex,
+    MAX_REALS,
+    MAX_SUPPORTED_CPUS,
+    MAX_VIPS,
+    RING_SIZE,
+    STATS_MAP_SIZE,
     CtlArrayIndex,
-)
-from katran.core.types import (
-    VipKey,
-    VipMeta,
-    RealDefinition,
-    FlowKey,
-    RealPosLru,
-    CtlValue,
-    LbStats,
-    Vip,
-    Real,
+    PacketFlags,
+    Protocol,
+    RealFlags,
+    StatsCounterIndex,
+    VipFlags,
 )
 from katran.core.exceptions import (
-    KatranError,
     BpfMapError,
+    ConfigurationError,
+    KatranError,
     MapNotFoundError,
     MapOperationError,
-    SerializationError,
-    VipError,
-    VipExistsError,
-    VipNotFoundError,
     RealError,
     RealExistsError,
     RealNotFoundError,
     ResourceExhaustedError,
-    ConfigurationError,
+    SerializationError,
+    VipError,
+    VipExistsError,
+    VipNotFoundError,
+)
+from katran.core.logging import get_logger, setup_logging
+from katran.core.types import (
+    CtlValue,
+    FlowKey,
+    LbStats,
+    Real,
+    RealDefinition,
+    RealPosLru,
+    Vip,
+    VipKey,
+    VipMeta,
 )
 
 __all__ = [

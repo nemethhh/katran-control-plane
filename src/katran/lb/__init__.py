@@ -1,14 +1,14 @@
 """Load balancer logic module."""
 
 from katran.lb.maglev import (
-    MaglevHashRing,
     Endpoint,
-    hash_endpoint_address,
+    MaglevHashRing,
     compute_ring_changes,
+    hash_endpoint_address,
     murmur_hash3_x64_64,
 )
-from katran.lb.vip_manager import VipManager
 from katran.lb.real_manager import RealManager
+from katran.lb.vip_manager import VipManager
 
 __all__ = [
     # Consistent hashing

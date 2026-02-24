@@ -194,6 +194,4 @@ class BpfAttachError(KatranError):
     def __init__(self, interface: str, program_type: str, message: str) -> None:
         self.interface = interface
         self.program_type = program_type
-        super().__init__(
-            f"Failed to attach {program_type} program to '{interface}': {message}"
-        )
+        super().__init__(f"Failed to attach {program_type} program to '{interface}': {message}")

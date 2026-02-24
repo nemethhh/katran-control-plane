@@ -31,7 +31,6 @@ from katran.core.exceptions import (
     ResourceExhaustedError,
 )
 
-
 # Type variables for generic map wrapper
 K = TypeVar("K")  # Key type
 V = TypeVar("V")  # Value type

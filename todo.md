@@ -77,16 +77,15 @@
 ## Phase 5: Statistics & Monitoring
 **Goal:** Implement statistics collection and Prometheus export
 
-- [ ] Per-CPU statistics aggregation (`stats/collector.py`)
-- [ ] Background statistics collection thread
-- [ ] Per-VIP statistics (packets, bytes, connections)
-- [ ] Global statistics aggregation
-- [ ] LRU hit/miss rate calculation
-- [ ] Prometheus metrics export (`stats/prometheus.py`)
-- [ ] HTTP endpoint for metrics scraping
-- [ ] Statistics reset capability
-- [ ] Unit tests for aggregation logic
-- [ ] Integration tests for Prometheus export
+- [x] Per-CPU statistics aggregation (`stats/collector.py`)
+- [x] Background statistics collection thread
+- [x] Per-VIP statistics (packets, bytes, connections)
+- [x] Global statistics aggregation
+- [x] LRU hit/miss rate calculation
+- [x] Prometheus metrics export (`stats/prometheus.py`)
+- [x] HTTP endpoint for metrics scraping
+- [x] Unit tests for aggregation logic
+- [x] Integration tests for Prometheus export
 
 ---
 
@@ -104,15 +103,11 @@
 ---
 
 ## Phase 7: API Layer
-**Goal:** Implement gRPC and REST APIs
+**Goal:** Implement REST APIs
 
-- [ ] Protocol buffer definitions (`api/grpc/katran.proto`)
-- [ ] gRPC service implementation (`api/grpc/service.py`)
 - [ ] REST API using FastAPI (`api/rest/app.py`)
 - [ ] Input validation for all endpoints
 - [ ] Error handling and status codes
-- [ ] API authentication (optional)
-- [ ] API rate limiting (optional)
 - [ ] OpenAPI documentation
 - [ ] Unit tests for API endpoints
 - [ ] Integration tests for full API flow

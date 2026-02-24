@@ -21,7 +21,7 @@ import struct
 from typing import Sequence
 
 from katran.bpf.map_manager import BpfMap
-from katran.core.constants import RING_SIZE, MAX_VIPS, CH_RINGS_SIZE
+from katran.core.constants import MAX_VIPS, RING_SIZE
 
 
 class ChRingsMap(BpfMap[int, int]):
@@ -147,9 +147,7 @@ class ChRingsMap(BpfMap[int, int]):
             ValueError: If ring length doesn't match ring_size
         """
         if len(ring) != self._ring_size:
-            raise ValueError(
-                f"Ring length {len(ring)} doesn't match ring_size {self._ring_size}"
-            )
+            raise ValueError(f"Ring length {len(ring)} doesn't match ring_size {self._ring_size}")
 
         base = self.get_ring_base(vip_num)
 
@@ -334,9 +332,7 @@ class ChRingsMap(BpfMap[int, int]):
 
         for i, real_idx in enumerate(ring):
             if real_idx != 0 and real_idx not in expected_reals:
-                errors.append(
-                    f"Position {i} has invalid real_index {real_idx}"
-                )
+                errors.append(f"Position {i} has invalid real_index {real_idx}")
 
         # Check if any expected reals are missing
         ring_reals = set(ring) - {0}

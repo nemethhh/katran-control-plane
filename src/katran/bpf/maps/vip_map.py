@@ -15,14 +15,14 @@ from __future__ import annotations
 
 from katran.bpf.map_manager import BpfMap, IndexAllocator
 from katran.core.constants import MAX_VIPS
+from katran.core.exceptions import VipExistsError
 from katran.core.types import (
-    VipKey,
-    VipMeta,
-    Vip,
     VIP_KEY_SIZE,
     VIP_META_SIZE,
+    Vip,
+    VipKey,
+    VipMeta,
 )
-from katran.core.exceptions import VipExistsError, VipNotFoundError
 
 
 class VipMap(BpfMap[VipKey, VipMeta]):
@@ -110,9 +110,7 @@ class VipMap(BpfMap[VipKey, VipMeta]):
         with self._lock:
             # Check if VIP already exists
             if vip.key in self._vip_cache or self.get(vip.key) is not None:
-                raise VipExistsError(
-                    str(vip.key.address), vip.key.port, vip.key.protocol.name
-                )
+                raise VipExistsError(str(vip.key.address), vip.key.port, vip.key.protocol.name)
 
             # Allocate vip_num
             vip_num = self._vip_num_allocator.allocate()

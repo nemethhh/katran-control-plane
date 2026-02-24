@@ -1,23 +1,23 @@
 """Tests for the REST API."""
 
-from unittest.mock import MagicMock, PropertyMock
 from ipaddress import IPv4Address
+from unittest.mock import MagicMock, PropertyMock
 
-import pytest
 import httpx
+import pytest
 
 from katran.api.rest import create_app
-from katran.core.constants import Protocol, VipFlags
+from katran.core.constants import Protocol
 from katran.core.exceptions import (
     RealExistsError,
     VipExistsError,
 )
-from katran.core.types import Real, Vip, VipKey
-
+from katran.core.types import Real, Vip
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_vip(address="10.0.0.1", port=80, proto=Protocol.TCP, vip_num=0, reals=None):
     vip = Vip.create(address=address, port=port, protocol=proto)
@@ -59,6 +59,7 @@ async def client(app):
 # Health
 # ---------------------------------------------------------------------------
 
+
 class TestHealth:
     @pytest.mark.asyncio
     async def test_healthy(self, client):
@@ -89,15 +90,16 @@ class TestHealth:
 # VIP endpoints
 # ---------------------------------------------------------------------------
 
+
 class TestVipEndpoints:
     @pytest.mark.asyncio
     async def test_add_vip(self, client, mock_service):
         vip = _make_vip()
         mock_service.vip_manager.add_vip.return_value = vip
 
-        resp = await client.post("/api/v1/vips", json={
-            "address": "10.0.0.1", "port": 80, "protocol": "tcp"
-        })
+        resp = await client.post(
+            "/api/v1/vips", json={"address": "10.0.0.1", "port": 80, "protocol": "tcp"}
+        )
         assert resp.status_code == 201
         body = resp.json()
         assert body["address"] == "10.0.0.1"
@@ -107,9 +109,9 @@ class TestVipEndpoints:
     @pytest.mark.asyncio
     async def test_add_vip_duplicate(self, client, mock_service):
         mock_service.vip_manager.add_vip.side_effect = VipExistsError("10.0.0.1", 80, "tcp")
-        resp = await client.post("/api/v1/vips", json={
-            "address": "10.0.0.1", "port": 80, "protocol": "tcp"
-        })
+        resp = await client.post(
+            "/api/v1/vips", json={"address": "10.0.0.1", "port": 80, "protocol": "tcp"}
+        )
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
@@ -130,9 +132,9 @@ class TestVipEndpoints:
     @pytest.mark.asyncio
     async def test_get_vip_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = None
-        resp = await client.get("/api/v1/vips", params={
-            "address": "10.0.0.99", "port": 80, "protocol": "tcp"
-        })
+        resp = await client.get(
+            "/api/v1/vips", params={"address": "10.0.0.99", "port": 80, "protocol": "tcp"}
+        )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
@@ -154,15 +156,16 @@ class TestVipEndpoints:
 
     @pytest.mark.asyncio
     async def test_invalid_protocol(self, client, mock_service):
-        resp = await client.post("/api/v1/vips", json={
-            "address": "10.0.0.1", "port": 80, "protocol": "icmp"
-        })
+        resp = await client.post(
+            "/api/v1/vips", json={"address": "10.0.0.1", "port": 80, "protocol": "icmp"}
+        )
         assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
 # Backend endpoints
 # ---------------------------------------------------------------------------
+
 
 class TestBackendEndpoints:
     @pytest.mark.asyncio
@@ -172,9 +175,14 @@ class TestBackendEndpoints:
         real = _make_real()
         mock_service.real_manager.add_real.return_value = real
 
-        resp = await client.post("/api/v1/backends/add", json={
-            "vip": VIP_PARAMS, "address": "10.0.0.100", "weight": 100,
-        })
+        resp = await client.post(
+            "/api/v1/backends/add",
+            json={
+                "vip": VIP_PARAMS,
+                "address": "10.0.0.100",
+                "weight": 100,
+            },
+        )
         assert resp.status_code == 201
         assert resp.json()["address"] == "10.0.0.100"
 
@@ -182,45 +190,64 @@ class TestBackendEndpoints:
     async def test_add_backend_duplicate(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.add_real.side_effect = RealExistsError("10.0.0.100")
-        resp = await client.post("/api/v1/backends/add", json={
-            "vip": VIP_PARAMS, "address": "10.0.0.100",
-        })
+        resp = await client.post(
+            "/api/v1/backends/add",
+            json={
+                "vip": VIP_PARAMS,
+                "address": "10.0.0.100",
+            },
+        )
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
     async def test_add_backend_vip_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = None
-        resp = await client.post("/api/v1/backends/add", json={
-            "vip": {"address": "10.0.0.99", "port": 80, "protocol": "tcp"},
-            "address": "10.0.0.100",
-        })
+        resp = await client.post(
+            "/api/v1/backends/add",
+            json={
+                "vip": {"address": "10.0.0.99", "port": 80, "protocol": "tcp"},
+                "address": "10.0.0.100",
+            },
+        )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_remove_backend(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.remove_real.return_value = True
-        resp = await client.post("/api/v1/backends/remove", json={
-            "vip": VIP_PARAMS, "address": "10.0.0.100",
-        })
+        resp = await client.post(
+            "/api/v1/backends/remove",
+            json={
+                "vip": VIP_PARAMS,
+                "address": "10.0.0.100",
+            },
+        )
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_remove_backend_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.remove_real.return_value = False
-        resp = await client.post("/api/v1/backends/remove", json={
-            "vip": VIP_PARAMS, "address": "10.0.0.100",
-        })
+        resp = await client.post(
+            "/api/v1/backends/remove",
+            json={
+                "vip": VIP_PARAMS,
+                "address": "10.0.0.100",
+            },
+        )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_drain_backend(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.drain_real.return_value = True
-        resp = await client.post("/api/v1/backends/drain", json={
-            "vip": VIP_PARAMS, "address": "10.0.0.100",
-        })
+        resp = await client.post(
+            "/api/v1/backends/drain",
+            json={
+                "vip": VIP_PARAMS,
+                "address": "10.0.0.100",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "drained"
 
@@ -228,15 +255,20 @@ class TestBackendEndpoints:
     async def test_drain_backend_not_found(self, client, mock_service):
         mock_service.vip_manager.get_vip.return_value = _make_vip()
         mock_service.real_manager.drain_real.return_value = False
-        resp = await client.post("/api/v1/backends/drain", json={
-            "vip": VIP_PARAMS, "address": "10.0.0.100",
-        })
+        resp = await client.post(
+            "/api/v1/backends/drain",
+            json={
+                "vip": VIP_PARAMS,
+                "address": "10.0.0.100",
+            },
+        )
         assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
 # Service unavailable
 # ---------------------------------------------------------------------------
+
 
 class TestServiceUnavailable:
     @pytest.mark.asyncio

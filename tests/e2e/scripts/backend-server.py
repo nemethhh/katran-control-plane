@@ -10,8 +10,7 @@ import json
 import os
 import socket
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 BACKEND_NAME = os.environ.get("BACKEND_NAME", "unknown")
 BACKEND_ADDR = os.environ.get("BACKEND_ADDR", "0.0.0.0")
@@ -40,11 +39,14 @@ class BackendHandler(BaseHTTPRequestHandler):
             request_count += 1
             count = request_count
 
-        self._respond(200, {
-            "backend": BACKEND_NAME,
-            "address": BACKEND_ADDR,
-            "request_number": count,
-        })
+        self._respond(
+            200,
+            {
+                "backend": BACKEND_NAME,
+                "address": BACKEND_ADDR,
+                "request_number": count,
+            },
+        )
 
     def _respond(self, code, body):
         payload = json.dumps(body).encode()

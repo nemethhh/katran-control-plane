@@ -19,15 +19,13 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
-from typing import Callable
 
 from katran.bpf.map_manager import PerCpuBpfMap
 from katran.core.constants import (
     MAX_VIPS,
-    STATS_MAP_SIZE,
     StatsCounterIndex,
 )
-from katran.core.types import LbStats, LB_STATS_SIZE
+from katran.core.types import LB_STATS_SIZE, LbStats
 
 
 @dataclass

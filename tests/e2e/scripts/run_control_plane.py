@@ -2,13 +2,12 @@
 """Start the Katran control plane API server for E2E tests."""
 
 import os
-import sys
 
 import uvicorn
 
+from katran.api.rest import create_app
 from katran.core.config import KatranConfig
 from katran.service import KatranService
-from katran.api.rest import create_app
 
 
 def main() -> None:
@@ -16,15 +15,17 @@ def main() -> None:
     host = os.environ.get("KATRAN_API_HOST", "0.0.0.0")
     port = int(os.environ.get("KATRAN_API_PORT", "8080"))
 
-    config = KatranConfig.from_dict({
-        "bpf": {"pin_path": pin_path},
-        "maps": {
-            "max_vips": int(os.environ.get("KATRAN_MAX_VIPS", "512")),
-            "max_reals": int(os.environ.get("KATRAN_MAX_REALS", "4096")),
-            "ring_size": int(os.environ.get("KATRAN_RING_SIZE", "65537")),
-            "lru_size": int(os.environ.get("KATRAN_LRU_SIZE", "1000")),
-        },
-    })
+    config = KatranConfig.from_dict(
+        {
+            "bpf": {"pin_path": pin_path},
+            "maps": {
+                "max_vips": int(os.environ.get("KATRAN_MAX_VIPS", "512")),
+                "max_reals": int(os.environ.get("KATRAN_MAX_REALS", "4096")),
+                "ring_size": int(os.environ.get("KATRAN_RING_SIZE", "65537")),
+                "lru_size": int(os.environ.get("KATRAN_LRU_SIZE", "1000")),
+            },
+        }
+    )
 
     service = KatranService(config)
     print(f"Starting Katran service (pin_path={pin_path})...", flush=True)

@@ -19,16 +19,13 @@ from threading import RLock
 from typing import Optional
 
 from katran.bpf.map_manager import IndexAllocator
-from katran.bpf.maps.vip_map import VipMap
 from katran.bpf.maps.ch_rings_map import ChRingsMap
+from katran.bpf.maps.vip_map import VipMap
 from katran.core.constants import MAX_VIPS, Protocol, VipFlags
-from katran.core.types import Vip, VipKey, IpAddress, _parse_ip_address
 from katran.core.exceptions import (
     VipExistsError,
-    VipNotFoundError,
-    ResourceExhaustedError,
 )
-
+from katran.core.types import IpAddress, Vip, VipKey, _parse_ip_address
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +123,7 @@ class VipManager:
 
             # Check if VIP already exists
             if key in self._vips:
-                raise VipExistsError(
-                    str(key.address), key.port, key.protocol.name
-                )
+                raise VipExistsError(str(key.address), key.port, key.protocol.name)
 
             # Allocate vip_num
             vip_num = self._vip_num_allocator.allocate()
@@ -147,9 +142,7 @@ class VipManager:
             # Store in local state
             self._vips[key] = vip
 
-            logger.info(
-                f"Added VIP {key} with vip_num={vip_num}, flags={flags}"
-            )
+            logger.info(f"Added VIP {key} with vip_num={vip_num}, flags={flags}")
 
             return vip
 
@@ -184,9 +177,7 @@ class VipManager:
             # Build key if not provided
             if key is None:
                 if address is None or port is None or protocol is None:
-                    raise ValueError(
-                        "Must provide either key or address/port/protocol"
-                    )
+                    raise ValueError("Must provide either key or address/port/protocol")
                 if isinstance(address, str):
                     address = _parse_ip_address(address)
                 if isinstance(protocol, str):

@@ -5,29 +5,30 @@ Tests verify that data structures serialize/deserialize correctly
 to match the BPF struct layouts defined in balancer_structs.h.
 """
 
-import pytest
 from ipaddress import IPv4Address, IPv6Address
 
-from katran.core.constants import Protocol, VipFlags, RealFlags
+import pytest
+
+from katran.core.constants import Protocol, RealFlags, VipFlags
+from katran.core.exceptions import SerializationError
 from katran.core.types import (
-    VipKey,
-    VipMeta,
-    RealDefinition,
-    FlowKey,
-    RealPosLru,
-    CtlValue,
-    LbStats,
-    Vip,
-    Real,
+    CTL_VALUE_SIZE,
+    FLOW_KEY_SIZE,
+    LB_STATS_SIZE,
+    REAL_DEFINITION_SIZE,
+    REAL_POS_LRU_SIZE,
     VIP_KEY_SIZE,
     VIP_META_SIZE,
-    REAL_DEFINITION_SIZE,
-    FLOW_KEY_SIZE,
-    REAL_POS_LRU_SIZE,
-    CTL_VALUE_SIZE,
-    LB_STATS_SIZE,
+    CtlValue,
+    FlowKey,
+    LbStats,
+    Real,
+    RealDefinition,
+    RealPosLru,
+    Vip,
+    VipKey,
+    VipMeta,
 )
-from katran.core.exceptions import SerializationError
 
 
 class TestVipKey:

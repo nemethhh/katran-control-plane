@@ -10,10 +10,12 @@ from katran.service import KatranService
 
 @pytest.fixture
 def config():
-    return KatranConfig.from_dict({
-        "bpf": {"pin_path": "/tmp/fake"},
-        "maps": {"max_vips": 64, "max_reals": 256, "ring_size": 13, "lru_size": 100},
-    })
+    return KatranConfig.from_dict(
+        {
+            "bpf": {"pin_path": "/tmp/fake"},
+            "maps": {"max_vips": 64, "max_reals": 256, "ring_size": 13, "lru_size": 100},
+        }
+    )
 
 
 def _make_mock_map():
@@ -118,6 +120,7 @@ class TestServiceLifecycle:
                     idx[0] += 1
                     return m
                 return _make_mock_map()
+
             return factory
 
         # VipMap succeeds, RealsMap fails

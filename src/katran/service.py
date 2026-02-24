@@ -6,7 +6,6 @@ Wires together BPF maps, managers, and provides lifecycle management.
 
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 from katran.bpf import (
@@ -61,11 +60,7 @@ class KatranService:
 
     @property
     def is_healthy(self) -> bool:
-        return (
-            self._running
-            and self.vip_manager is not None
-            and self.real_manager is not None
-        )
+        return self._running and self.vip_manager is not None and self.real_manager is not None
 
     def _open_maps(self) -> None:
         """Instantiate and open all BPF maps.

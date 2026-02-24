@@ -7,11 +7,11 @@ Tests verify:
 - Performance comparison between full and optimized writes
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 
 from katran.bpf.maps.ch_rings_map import ChRingsMap
-from katran.core.constants import RING_SIZE
 
 
 class TestChRingsMapOptimizedWrite:
@@ -82,9 +82,7 @@ class TestChRingsMapOptimizedWrite:
     @patch("katran.bpf.map_manager.BpfMap.open")
     @patch("katran.bpf.map_manager.BpfMap.get")
     @patch("katran.bpf.map_manager.BpfMap.set")
-    def test_write_ring_unoptimized(
-        self, mock_set: Mock, mock_get: Mock, mock_open: Mock
-    ) -> None:
+    def test_write_ring_unoptimized(self, mock_set: Mock, mock_get: Mock, mock_open: Mock) -> None:
         """Unoptimized write always writes all positions."""
         # Setup: old ring is [1, 2, 3]
         mock_get.return_value = 1
@@ -119,9 +117,7 @@ class TestChRingsMapOptimizedWrite:
 
         with ChRingsMap("/tmp", ring_size=ring_size) as rings:
             # Update VIP 1 (base offset = 5)
-            written = rings.write_ring(
-                vip_num=1, ring=[2, 9, 2, 2, 2], optimize=True
-            )
+            written = rings.write_ring(vip_num=1, ring=[2, 9, 2, 2, 2], optimize=True)
 
             # Should have written only position 1 of VIP 1 (absolute index 6)
             assert written == 1
@@ -136,9 +132,7 @@ class TestChRingsMapIncrementalWrite:
 
     @patch("katran.bpf.map_manager.BpfMap.open")
     @patch("katran.bpf.map_manager.BpfMap.set")
-    def test_write_ring_incremental_no_changes(
-        self, mock_set: Mock, mock_open: Mock
-    ) -> None:
+    def test_write_ring_incremental_no_changes(self, mock_set: Mock, mock_open: Mock) -> None:
         """Incremental write with no changes writes nothing."""
         old_ring = [1, 2, 3, 4, 5]
         new_ring = [1, 2, 3, 4, 5]
@@ -154,9 +148,7 @@ class TestChRingsMapIncrementalWrite:
 
     @patch("katran.bpf.map_manager.BpfMap.open")
     @patch("katran.bpf.map_manager.BpfMap.set")
-    def test_write_ring_incremental_partial_changes(
-        self, mock_set: Mock, mock_open: Mock
-    ) -> None:
+    def test_write_ring_incremental_partial_changes(self, mock_set: Mock, mock_open: Mock) -> None:
         """Incremental write only updates changed positions."""
         old_ring = [1, 2, 3, 4, 5]
         new_ring = [1, 9, 3, 9, 5]  # Positions 1 and 3 changed
@@ -176,9 +168,7 @@ class TestChRingsMapIncrementalWrite:
 
     @patch("katran.bpf.map_manager.BpfMap.open")
     @patch("katran.bpf.map_manager.BpfMap.set")
-    def test_write_ring_incremental_all_changes(
-        self, mock_set: Mock, mock_open: Mock
-    ) -> None:
+    def test_write_ring_incremental_all_changes(self, mock_set: Mock, mock_open: Mock) -> None:
         """Incremental write with all positions changed."""
         old_ring = [1, 1, 1]
         new_ring = [2, 2, 2]
@@ -210,9 +200,7 @@ class TestChRingsMapIncrementalWrite:
 
     @patch("katran.bpf.map_manager.BpfMap.open")
     @patch("katran.bpf.map_manager.BpfMap.set")
-    def test_write_ring_incremental_with_vip_offset(
-        self, mock_set: Mock, mock_open: Mock
-    ) -> None:
+    def test_write_ring_incremental_with_vip_offset(self, mock_set: Mock, mock_open: Mock) -> None:
         """Incremental write calculates correct offsets for VIP."""
         ring_size = 5
         old_ring = [1, 1, 1, 1, 1]
@@ -317,9 +305,7 @@ class TestChRingsMapEdgeCases:
 
     @patch("katran.bpf.map_manager.BpfMap.open")
     @patch("katran.bpf.map_manager.BpfMap.set")
-    def test_write_ring_incremental_empty_ring(
-        self, mock_set: Mock, mock_open: Mock
-    ) -> None:
+    def test_write_ring_incremental_empty_ring(self, mock_set: Mock, mock_open: Mock) -> None:
         """Incremental write handles empty rings."""
         old_ring = [0, 0, 0]
         new_ring = [1, 2, 3]

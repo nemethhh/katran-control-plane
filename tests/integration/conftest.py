@@ -12,7 +12,6 @@ Or: docker compose -f docker-compose.test.yml run katran-target pytest tests/int
 """
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Generator
 
@@ -95,9 +94,10 @@ def pinned_map_names(bpf_environment: dict) -> list[str]:
 # Test Data Fixtures
 # =============================================================================
 
-from ipaddress import IPv4Address, IPv6Address
-from katran.core.constants import Protocol, VipFlags, RealFlags
-from katran.core.types import VipKey, VipMeta, RealDefinition, Vip, Real
+from ipaddress import IPv4Address
+
+from katran.core.constants import Protocol, RealFlags, VipFlags
+from katran.core.types import Real, RealDefinition, Vip, VipKey, VipMeta
 
 
 @pytest.fixture
@@ -164,21 +164,22 @@ def test_real_definition() -> RealDefinition:
 
 def pytest_runtest_setup(item):
     """Hook called before each test."""
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"SETUP: {item.nodeid}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
 
 def pytest_runtest_teardown(item, nextitem):
     """Hook called after each test."""
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"TEARDOWN: {item.nodeid}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
 
 def pytest_runtest_makereport(item, call):
     """Hook to customize test report."""
     if call.when == "call":
         import sys
+
         sys.stdout.flush()
         sys.stderr.flush()

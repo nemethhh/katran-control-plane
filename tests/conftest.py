@@ -2,25 +2,23 @@
 Pytest configuration and fixtures for Katran control plane tests.
 """
 
-import pytest
+import tempfile
 from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
-import tempfile
-import os
 
-from katran.core.constants import Protocol, VipFlags, RealFlags
+import pytest
+
+from katran.core.constants import Protocol, RealFlags, VipFlags
 from katran.core.types import (
+    FlowKey,
+    LbStats,
+    Real,
+    RealDefinition,
+    RealPosLru,
+    Vip,
     VipKey,
     VipMeta,
-    RealDefinition,
-    FlowKey,
-    RealPosLru,
-    CtlValue,
-    LbStats,
-    Vip,
-    Real,
 )
-
 
 # =============================================================================
 # Sample Data Fixtures
@@ -207,10 +205,11 @@ def mock_stats_map() -> MockBpfMap:
 # Manager Fixtures (for Phase 2 unit tests)
 # =============================================================================
 
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
+
 from katran.lb.maglev import MaglevHashRing
-from katran.lb.vip_manager import VipManager
 from katran.lb.real_manager import RealManager
+from katran.lb.vip_manager import VipManager
 
 
 @pytest.fixture

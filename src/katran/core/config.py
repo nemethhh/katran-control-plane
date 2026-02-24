@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, field_validator, model_validator
@@ -123,11 +123,21 @@ class LogConfig(BaseModel):
 
 # Keys that only appear in flat format
 _FLAT_KEYS = {
-    "interface", "xdp_mode", "default_gateway_mac",
-    "xdp_program", "hc_program", "pin_path",
-    "max_vips", "max_reals", "lru_size", "ring_size",
-    "grpc_port", "rest_port", "prometheus_port",
-    "log_level", "log_format",
+    "interface",
+    "xdp_mode",
+    "default_gateway_mac",
+    "xdp_program",
+    "hc_program",
+    "pin_path",
+    "max_vips",
+    "max_reals",
+    "lru_size",
+    "ring_size",
+    "grpc_port",
+    "rest_port",
+    "prometheus_port",
+    "log_level",
+    "log_format",
 }
 
 
@@ -141,9 +151,20 @@ def _is_flat_config(data: dict[str, Any]) -> bool:
     """
     # Keys that only exist in flat format (never a nested group name)
     unambiguous_flat = {
-        "xdp_mode", "default_gateway_mac", "xdp_program", "hc_program",
-        "pin_path", "max_vips", "max_reals", "lru_size", "ring_size",
-        "grpc_port", "rest_port", "prometheus_port", "log_level", "log_format",
+        "xdp_mode",
+        "default_gateway_mac",
+        "xdp_program",
+        "hc_program",
+        "pin_path",
+        "max_vips",
+        "max_reals",
+        "lru_size",
+        "ring_size",
+        "grpc_port",
+        "rest_port",
+        "prometheus_port",
+        "log_level",
+        "log_format",
     }
     if set(data.keys()) & unambiguous_flat:
         return True

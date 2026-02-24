@@ -1,16 +1,15 @@
 """Tests for Katran configuration management."""
 
-from pathlib import Path
 
 import pytest
 
 from katran.core.config import KatranConfig, _is_prime
 from katran.core.exceptions import ConfigurationError
 
-
 # ---------------------------------------------------------------------------
 # Flat format (existing katran.yaml)
 # ---------------------------------------------------------------------------
+
 
 class TestFlatConfig:
     """Tests for loading flat-format YAML config."""
@@ -56,12 +55,17 @@ class TestFlatConfig:
 # Nested format
 # ---------------------------------------------------------------------------
 
+
 class TestNestedConfig:
     """Tests for loading nested-format config."""
 
     def test_nested_dict(self):
         data = {
-            "interface": {"name": "lo", "xdp_mode": "skb", "default_gateway_mac": "11:22:33:44:55:66"},
+            "interface": {
+                "name": "lo",
+                "xdp_mode": "skb",
+                "default_gateway_mac": "11:22:33:44:55:66",
+            },
             "bpf": {"pin_path": "/tmp/bpf"},
             "maps": {"max_vips": 128, "ring_size": 65537},
             "logging": {"level": "WARNING", "format": "console"},
@@ -84,6 +88,7 @@ class TestNestedConfig:
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
+
 
 class TestValidation:
     """Tests for config validation rules."""
@@ -141,6 +146,7 @@ class TestValidation:
 # ---------------------------------------------------------------------------
 # Primality helper
 # ---------------------------------------------------------------------------
+
 
 class TestIsPrime:
     def test_known_primes(self):

@@ -8,16 +8,14 @@ addresses with colons.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
-from prometheus_client import CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
 from pydantic import BaseModel, Field
 
 from katran.core.constants import Protocol
-from katran.stats.collector import KatranMetricsCollector
 from katran.core.exceptions import (
     KatranError,
     RealExistsError,
@@ -25,6 +23,7 @@ from katran.core.exceptions import (
     VipExistsError,
 )
 from katran.core.logging import get_logger
+from katran.stats.collector import KatranMetricsCollector
 
 log = get_logger(__name__)
 
@@ -32,6 +31,7 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Request / Response Models
 # ---------------------------------------------------------------------------
+
 
 class VipId(BaseModel):
     address: str
@@ -79,6 +79,7 @@ class ErrorResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_protocol(proto_str: str) -> Protocol:
     """Parse protocol string to Protocol enum."""
     try:
@@ -95,8 +96,7 @@ def _vip_to_response(vip: Any) -> VipResponse:
         flags=int(vip.flags),
         vip_num=vip.vip_num,
         backends=[
-            RealResponse(address=str(r.address), weight=r.weight, index=r.index)
-            for r in vip.reals
+            RealResponse(address=str(r.address), weight=r.weight, index=r.index) for r in vip.reals
         ],
     )
 
@@ -115,6 +115,7 @@ def _lookup_vip(svc, address: str, port: int, protocol: Protocol):
 # ---------------------------------------------------------------------------
 # Dependency
 # ---------------------------------------------------------------------------
+
 
 def get_service(request: Request):
     """FastAPI dependency that returns the KatranService or raises 503."""
@@ -145,6 +146,7 @@ def _katran_error_handler(request: Request, exc: KatranError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
+
 
 def create_app(service=None) -> FastAPI:
     """Create the FastAPI application."""
@@ -236,7 +238,9 @@ def create_app(service=None) -> FastAPI:
     def remove_vip(req: VipId, svc=Depends(get_service)):
         proto = _parse_protocol(req.protocol)
         removed = svc.vip_manager.remove_vip(
-            address=req.address, port=req.port, protocol=proto,
+            address=req.address,
+            port=req.port,
+            protocol=proto,
         )
         if not removed:
             raise HTTPException(
@@ -253,8 +257,13 @@ def create_app(service=None) -> FastAPI:
         proto = _parse_protocol(req.vip.protocol)
         vip = _lookup_vip(svc, req.vip.address, req.vip.port, proto)
         real = svc.real_manager.add_real(vip, address=req.address, weight=req.weight)
-        log.info("Added backend %s to VIP %s:%d/%s",
-                 req.address, req.vip.address, req.vip.port, req.vip.protocol)
+        log.info(
+            "Added backend %s to VIP %s:%d/%s",
+            req.address,
+            req.vip.address,
+            req.vip.port,
+            req.vip.protocol,
+        )
         return RealResponse(address=str(real.address), weight=real.weight, index=real.index)
 
     @app.post("/api/v1/backends/remove")
@@ -264,8 +273,13 @@ def create_app(service=None) -> FastAPI:
         removed = svc.real_manager.remove_real(vip, address=req.address)
         if not removed:
             raise HTTPException(status_code=404, detail=f"Backend {req.address} not found")
-        log.info("Removed backend %s from VIP %s:%d/%s",
-                 req.address, req.vip.address, req.vip.port, req.vip.protocol)
+        log.info(
+            "Removed backend %s from VIP %s:%d/%s",
+            req.address,
+            req.vip.address,
+            req.vip.port,
+            req.vip.protocol,
+        )
         return {"status": "removed"}
 
     @app.post("/api/v1/backends/drain")
@@ -275,8 +289,13 @@ def create_app(service=None) -> FastAPI:
         drained = svc.real_manager.drain_real(vip, address=req.address)
         if not drained:
             raise HTTPException(status_code=404, detail=f"Backend {req.address} not found")
-        log.info("Drained backend %s from VIP %s:%d/%s",
-                 req.address, req.vip.address, req.vip.port, req.vip.protocol)
+        log.info(
+            "Drained backend %s from VIP %s:%d/%s",
+            req.address,
+            req.vip.address,
+            req.vip.port,
+            req.vip.protocol,
+        )
         return {"status": "drained"}
 
     return app

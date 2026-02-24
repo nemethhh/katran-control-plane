@@ -4,7 +4,7 @@ Unit tests for BPF map manager and index allocator.
 
 import pytest
 
-from katran.bpf.map_manager import IndexAllocator, BpfMapType, BpfMapUpdateFlags
+from katran.bpf.map_manager import BpfMapType, BpfMapUpdateFlags, IndexAllocator
 from katran.core.exceptions import ResourceExhaustedError
 
 

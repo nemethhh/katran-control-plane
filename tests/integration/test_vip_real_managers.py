@@ -12,20 +12,20 @@ Prerequisites:
 Run via: ./tests/integration/run-tests.sh
 """
 
-import pytest
-from pathlib import Path
-from ipaddress import IPv4Address, IPv6Address
 import sys
+from ipaddress import IPv4Address, IPv6Address
+from pathlib import Path
 
-from katran.core.constants import Protocol, VipFlags, RING_SIZE
-from katran.core.types import Vip, Real
-from katran.lb.vip_manager import VipManager
-from katran.lb.real_manager import RealManager
-from katran.lb.maglev import MaglevHashRing
-from katran.bpf.maps.vip_map import VipMap
-from katran.bpf.maps.reals_map import RealsMap
+import pytest
+
 from katran.bpf.maps.ch_rings_map import ChRingsMap
-
+from katran.bpf.maps.reals_map import RealsMap
+from katran.bpf.maps.vip_map import VipMap
+from katran.core.constants import RING_SIZE, Protocol, VipFlags
+from katran.core.types import Real, Vip
+from katran.lb.maglev import MaglevHashRing
+from katran.lb.real_manager import RealManager
+from katran.lb.vip_manager import VipManager
 
 # =============================================================================
 # Test Utilities for Detailed Error Reporting
@@ -46,11 +46,7 @@ def assert_vip_allocated(vip: Vip, description: str = "VIP"):
 def assert_vip_num_valid(vip_num: int, description: str = "vip_num"):
     """Assert vip_num is valid (>= 0)."""
     if vip_num < 0:
-        pytest.fail(
-            f"\n{description} is invalid:\n"
-            f"  Expected: >= 0\n"
-            f"  Actual: {vip_num}\n"
-        )
+        pytest.fail(f"\n{description} is invalid:\n  Expected: >= 0\n  Actual: {vip_num}\n")
 
 
 def assert_real_allocated(real: Real, description: str = "Backend"):
@@ -68,7 +64,7 @@ def assert_ring_distribution(
     ring: list[int],
     expected_indices: list[int],
     tolerance: float = 0.1,
-    description: str = "Ring distribution"
+    description: str = "Ring distribution",
 ):
     """
     Assert hash ring contains expected backend indices with detailed stats.
@@ -107,8 +103,8 @@ def assert_ring_distribution(
             pytest.fail(
                 f"\n{description} - Uneven distribution:\n"
                 f"  Backend {idx}:\n"
-                f"    Expected: ~{expected_per_backend} positions ({100/len(expected_indices):.1f}%)\n"
-                f"    Actual: {count} positions ({100*count/ring_size:.1f}%)\n"
+                f"    Expected: ~{expected_per_backend} positions ({100 / len(expected_indices):.1f}%)\n"
+                f"    Actual: {count} positions ({100 * count / ring_size:.1f}%)\n"
                 f"    Deviation: {deviation} (max allowed: {max_deviation:.0f})\n"
                 f"  Full distribution: {counts}\n"
             )
@@ -118,7 +114,7 @@ def assert_weighted_distribution(
     ring: list[int],
     backend_weights: dict[int, int],
     tolerance: float = 0.2,
-    description: str = "Weighted ring distribution"
+    description: str = "Weighted ring distribution",
 ):
     """
     Assert hash ring has correct weighted distribution.
@@ -133,7 +129,7 @@ def assert_weighted_distribution(
     total_weight = sum(backend_weights.values())
 
     # Count actual distribution
-    counts = {idx: ring.count(idx) for idx in backend_weights.keys()}
+    counts = {idx: ring.count(idx) for idx in backend_weights}
 
     # Calculate expected vs actual
     results = []
@@ -144,15 +140,17 @@ def assert_weighted_distribution(
         actual_pct = (actual_count / ring_size) * 100
         deviation = abs(actual_pct - expected_pct)
 
-        results.append({
-            'index': idx,
-            'weight': weight,
-            'expected_count': expected_count,
-            'actual_count': actual_count,
-            'expected_pct': expected_pct,
-            'actual_pct': actual_pct,
-            'deviation': deviation,
-        })
+        results.append(
+            {
+                "index": idx,
+                "weight": weight,
+                "expected_count": expected_count,
+                "actual_count": actual_count,
+                "expected_pct": expected_pct,
+                "actual_pct": actual_pct,
+                "deviation": deviation,
+            }
+        )
 
         # Check if within tolerance
         max_deviation = expected_pct * tolerance
@@ -165,17 +163,17 @@ def assert_weighted_distribution(
                     f"    Actual:   {r['actual_count']} positions ({r['actual_pct']:.1f}%)\n"
                     f"    Deviation: {r['deviation']:.1f}% (max: {max_deviation:.1f}%)"
                 )
-            pytest.fail('\n'.join(error_lines))
+            pytest.fail("\n".join(error_lines))
 
 
 def print_test_info(test_name: str, **kwargs):
     """Print detailed test information for debugging."""
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"TEST: {test_name}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     for key, value in kwargs.items():
         print(f"  {key}: {value}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
     sys.stdout.flush()
 
 
@@ -273,12 +271,7 @@ class TestVipManagerIntegration:
         test_addr = "10.200.1.100"
         test_port = 8080
 
-        print_test_info(
-            "test_add_ipv4_vip",
-            address=test_addr,
-            port=test_port,
-            protocol="TCP"
-        )
+        print_test_info("test_add_ipv4_vip", address=test_addr, port=test_port, protocol="TCP")
 
         vip = vip_manager.add_vip(test_addr, test_port, Protocol.TCP)
 
@@ -289,17 +282,13 @@ class TestVipManagerIntegration:
         # Verify address
         if vip.key.address != IPv4Address(test_addr):
             pytest.fail(
-                f"\nVIP address mismatch:\n"
-                f"  Expected: {test_addr}\n"
-                f"  Actual: {vip.key.address}\n"
+                f"\nVIP address mismatch:\n  Expected: {test_addr}\n  Actual: {vip.key.address}\n"
             )
 
         # Verify port
         if vip.key.port != test_port:
             pytest.fail(
-                f"\nVIP port mismatch:\n"
-                f"  Expected: {test_port}\n"
-                f"  Actual: {vip.key.port}\n"
+                f"\nVIP port mismatch:\n  Expected: {test_port}\n  Actual: {vip.key.port}\n"
             )
 
         # Verify it exists in manager
@@ -310,7 +299,9 @@ class TestVipManagerIntegration:
                 f"  Manager VIP count: {vip_manager.get_vip_count()}\n"
             )
 
-        print(f"✓ VIP added successfully: vip_num={vip.vip_num}, address={vip.key.address}:{vip.key.port}")
+        print(
+            f"✓ VIP added successfully: vip_num={vip.vip_num}, address={vip.key.address}:{vip.key.port}"
+        )
         sys.stdout.flush()
 
     def test_add_ipv6_vip(self, vip_manager):
@@ -408,7 +399,7 @@ class TestRealManagerIntegration:
             "test_add_real_to_vip",
             vip=str(test_vip.key),
             backend=backend_addr,
-            weight=backend_weight
+            weight=backend_weight,
         )
 
         real = real_manager.add_real(test_vip, backend_addr, weight=backend_weight)
@@ -492,7 +483,7 @@ class TestRealManagerIntegration:
             vip1=f"{vip1_addr}:80",
             vip2=f"{vip2_addr}:80",
             shared_backend=shared_backend,
-            test="Backend sharing and reference counting"
+            test="Backend sharing and reference counting",
         )
 
         vip1 = vip_manager.add_vip(vip1_addr, 80, Protocol.TCP)
@@ -563,8 +554,8 @@ class TestRealManagerIntegration:
                 f"  Actual ref_count: {ref_count_final}\n"
             )
 
-        print(f"  ✓ Backend deleted when ref_count=0")
-        print(f"\n✓ Reference counting verified: 2 → 1 → 0")
+        print("  ✓ Backend deleted when ref_count=0")
+        print("\n✓ Reference counting verified: 2 → 1 → 0")
         sys.stdout.flush()
 
     def test_set_backend_weight(self, real_manager, test_vip):
@@ -622,7 +613,7 @@ class TestRealManagerIntegration:
             vip=str(test_vip.key),
             backends=[backend1, backend2],
             weights=[100, 100],
-            expected_distribution="50/50 (equal weights)"
+            expected_distribution="50/50 (equal weights)",
         )
 
         real1 = real_manager.add_real(test_vip, backend1, weight=100)
@@ -636,11 +627,7 @@ class TestRealManagerIntegration:
 
         # Verify ring size
         if len(ring) != RING_SIZE:
-            pytest.fail(
-                f"\nRing size mismatch:\n"
-                f"  Expected: {RING_SIZE}\n"
-                f"  Actual: {len(ring)}\n"
-            )
+            pytest.fail(f"\nRing size mismatch:\n  Expected: {RING_SIZE}\n  Actual: {len(ring)}\n")
 
         # Verify backends are in ring
         if real1.index not in ring:
@@ -662,9 +649,13 @@ class TestRealManagerIntegration:
         count_real2 = ring.count(real2.index)
         total = count_real1 + count_real2
 
-        print(f"  Ring distribution:")
-        print(f"    Backend {real1.index}: {count_real1} positions ({100*count_real1/RING_SIZE:.1f}%)")
-        print(f"    Backend {real2.index}: {count_real2} positions ({100*count_real2/RING_SIZE:.1f}%)")
+        print("  Ring distribution:")
+        print(
+            f"    Backend {real1.index}: {count_real1} positions ({100 * count_real1 / RING_SIZE:.1f}%)"
+        )
+        print(
+            f"    Backend {real2.index}: {count_real2} positions ({100 * count_real2 / RING_SIZE:.1f}%)"
+        )
         print(f"    Total: {total} positions")
 
         # Verify all positions filled
@@ -684,10 +675,10 @@ class TestRealManagerIntegration:
             ring,
             [real1.index, real2.index],
             tolerance=0.1,
-            description=f"Ring for VIP {test_vip.key} with equal weights"
+            description=f"Ring for VIP {test_vip.key} with equal weights",
         )
 
-        print(f"✓ Ring distribution verified: ~50/50 split")
+        print("✓ Ring distribution verified: ~50/50 split")
         sys.stdout.flush()
 
     def test_weighted_hash_ring(self, real_manager, test_vip, ch_rings_map):
@@ -702,7 +693,7 @@ class TestRealManagerIntegration:
             vip=str(test_vip.key),
             backends=[backend1, backend2],
             weights=[weight1, weight2],
-            expected_ratio="2:1 (weight 100:50)"
+            expected_ratio="2:1 (weight 100:50)",
         )
 
         real1 = real_manager.add_real(test_vip, backend1, weight=weight1)
@@ -720,9 +711,13 @@ class TestRealManagerIntegration:
         pct_real1 = (count_real1 / RING_SIZE) * 100
         pct_real2 = (count_real2 / RING_SIZE) * 100
 
-        print(f"  Ring distribution:")
-        print(f"    Backend {real1.index} (weight={weight1}): {count_real1} positions ({pct_real1:.1f}%)")
-        print(f"    Backend {real2.index} (weight={weight2}): {count_real2} positions ({pct_real2:.1f}%)")
+        print("  Ring distribution:")
+        print(
+            f"    Backend {real1.index} (weight={weight1}): {count_real1} positions ({pct_real1:.1f}%)"
+        )
+        print(
+            f"    Backend {real2.index} (weight={weight2}): {count_real2} positions ({pct_real2:.1f}%)"
+        )
 
         # Check ratio
         if count_real2 == 0:
@@ -744,10 +739,12 @@ class TestRealManagerIntegration:
             ring,
             {real1.index: weight1, real2.index: weight2},
             tolerance=0.2,
-            description=f"Weighted ring for VIP {test_vip.key}"
+            description=f"Weighted ring for VIP {test_vip.key}",
         )
 
-        print(f"✓ Weighted distribution verified: {ratio:.2f}:1 ratio (expected {expected_ratio:.2f}:1)")
+        print(
+            f"✓ Weighted distribution verified: {ratio:.2f}:1 ratio (expected {expected_ratio:.2f}:1)"
+        )
         sys.stdout.flush()
 
 
@@ -856,7 +853,7 @@ class TestErrorHandling:
             "test_duplicate_vip_raises_error",
             address=test_addr,
             port=test_port,
-            expected="VipExistsError on duplicate add"
+            expected="VipExistsError on duplicate add",
         )
 
         # Add first VIP

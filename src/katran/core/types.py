@@ -25,11 +25,10 @@ from typing import Union
 
 from katran.core.constants import (
     Protocol,
-    VipFlags,
     RealFlags,
+    VipFlags,
 )
 from katran.core.exceptions import SerializationError
-
 
 # Type alias for IP addresses
 IpAddress = Union[IPv4Address, IPv6Address]

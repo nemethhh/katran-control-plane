@@ -16,20 +16,18 @@ Key responsibilities:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from threading import RLock
 from typing import TYPE_CHECKING, Optional
-from dataclasses import dataclass
 
-from katran.bpf.maps.reals_map import RealsMap
 from katran.bpf.maps.ch_rings_map import ChRingsMap
+from katran.bpf.maps.reals_map import RealsMap
 from katran.core.constants import MAX_REALS
-from katran.core.types import Real, RealDefinition, IpAddress, _parse_ip_address
 from katran.core.exceptions import (
     RealExistsError,
-    RealNotFoundError,
-    ResourceExhaustedError,
 )
-from katran.lb.maglev import MaglevHashRing, Endpoint, hash_endpoint_address
+from katran.core.types import IpAddress, Real, RealDefinition, _parse_ip_address
+from katran.lb.maglev import Endpoint, MaglevHashRing, hash_endpoint_address
 
 if TYPE_CHECKING:
     from katran.core.types import Vip
@@ -290,8 +288,7 @@ class RealManager:
                 self._rebuild_ring(vip)
 
                 logger.info(
-                    f"Changed weight for real {address} in VIP {vip.key}: "
-                    f"{old_weight} → {weight}"
+                    f"Changed weight for real {address} in VIP {vip.key}: {old_weight} → {weight}"
                 )
 
             return True
@@ -465,10 +462,7 @@ class RealManager:
         if meta is not None:
             # Existing backend: increment ref count
             meta.ref_count += 1
-            logger.debug(
-                f"Increased ref_count for {address}: {meta.ref_count} "
-                f"(index={meta.num})"
-            )
+            logger.debug(f"Increased ref_count for {address}: {meta.ref_count} (index={meta.num})")
             return meta
         else:
             # New backend: allocate index
@@ -483,9 +477,7 @@ class RealManager:
             real_def = RealDefinition(address=address, flags=meta.flags)
             self._reals_map.set(idx, real_def)
 
-            logger.debug(
-                f"Allocated new backend {address} at index {idx}, ref_count=1"
-            )
+            logger.debug(f"Allocated new backend {address} at index {idx}, ref_count=1")
 
             return meta
 
@@ -515,14 +507,9 @@ class RealManager:
             del self._reals[address]
             del self._num_to_reals[idx]
 
-            logger.debug(
-                f"Deleted backend {address} (index={idx}), ref_count=0"
-            )
+            logger.debug(f"Deleted backend {address} (index={idx}), ref_count=0")
         else:
-            logger.debug(
-                f"Decreased ref_count for {address}: {meta.ref_count} "
-                f"(index={meta.num})"
-            )
+            logger.debug(f"Decreased ref_count for {address}: {meta.ref_count} (index={meta.num})")
 
     # =========================================================================
     # Consistent Hash Ring Management
@@ -578,9 +565,7 @@ class RealManager:
         """
         # This is a placeholder - typically called by a higher-level
         # coordinator that has access to both VipManager and RealManager
-        logger.warning(
-            "rebuild_all_rings called but VIPs not accessible from RealManager"
-        )
+        logger.warning("rebuild_all_rings called but VIPs not accessible from RealManager")
 
     # =========================================================================
     # State Management
@@ -612,7 +597,4 @@ class RealManager:
 
     def __repr__(self) -> str:
         """String representation of RealManager."""
-        return (
-            f"RealManager(reals={len(self._reals)}, "
-            f"max={self._max_reals})"
-        )
+        return f"RealManager(reals={len(self._reals)}, max={self._max_reals})"

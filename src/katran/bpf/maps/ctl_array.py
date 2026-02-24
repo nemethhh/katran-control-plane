@@ -16,8 +16,8 @@ from __future__ import annotations
 import struct
 
 from katran.bpf.map_manager import BpfMap
-from katran.core.constants import CTL_MAP_SIZE, CtlArrayIndex
-from katran.core.types import CtlValue, CTL_VALUE_SIZE
+from katran.core.constants import CtlArrayIndex
+from katran.core.types import CTL_VALUE_SIZE, CtlValue
 
 
 class CtlArray(BpfMap[int, CtlValue]):

@@ -5,19 +5,17 @@ Tests backend server management including reference counting,
 index allocation, and consistent hash ring updates.
 """
 
-import pytest
 from ipaddress import IPv4Address, IPv6Address
-from unittest.mock import Mock, MagicMock, call, patch
 
-from katran.lb.real_manager import RealManager, RealMeta
-from katran.lb.maglev import MaglevHashRing
-from katran.core.constants import Protocol, VipFlags, MAX_REALS
-from katran.core.types import Vip, VipKey, Real
+import pytest
+
+from katran.core.constants import MAX_REALS, Protocol
 from katran.core.exceptions import (
     RealExistsError,
-    RealNotFoundError,
-    ResourceExhaustedError,
 )
+from katran.core.types import Vip
+from katran.lb.maglev import MaglevHashRing
+from katran.lb.real_manager import RealManager
 
 
 class TestRealManagerInit:
@@ -31,14 +29,10 @@ class TestRealManagerInit:
         assert len(mgr._reals) == 0
         assert mgr.get_global_real_count() == 0
 
-    def test_init_custom_ring_builder(
-        self, mock_reals_map, mock_ch_rings_map
-    ):
+    def test_init_custom_ring_builder(self, mock_reals_map, mock_ch_rings_map):
         """Test RealManager initialization with custom ring builder."""
         custom_ring = MaglevHashRing(ring_size=65537)
-        mgr = RealManager(
-            mock_reals_map, mock_ch_rings_map, ring_builder=custom_ring
-        )
+        mgr = RealManager(mock_reals_map, mock_ch_rings_map, ring_builder=custom_ring)
 
         assert mgr._ring_builder is custom_ring
 
@@ -80,9 +74,7 @@ class TestRealManagerAddReal:
         assert len(sample_vip.reals) == 3
         assert real1.index != real2.index != real3.index
 
-    def test_add_duplicate_real_to_vip_raises_error(
-        self, real_manager, sample_vip
-    ):
+    def test_add_duplicate_real_to_vip_raises_error(self, real_manager, sample_vip):
         """Test adding duplicate backend to same VIP raises error."""
         real_manager.add_real(sample_vip, "10.0.0.100")
 
@@ -108,9 +100,7 @@ class TestRealManagerAddReal:
         # Global real count should be 1 (shared)
         assert real_manager.get_global_real_count() == 1
 
-    def test_add_real_updates_bpf_map(
-        self, real_manager, sample_vip, mock_reals_map
-    ):
+    def test_add_real_updates_bpf_map(self, real_manager, sample_vip, mock_reals_map):
         """Test adding backend updates BPF reals map."""
         real = real_manager.add_real(sample_vip, "10.0.0.100")
 
@@ -120,9 +110,7 @@ class TestRealManagerAddReal:
         assert call_args[0] == real.index
         assert call_args[1].address == real.address
 
-    def test_add_real_triggers_ring_rebuild(
-        self, real_manager, sample_vip, mock_ch_rings_map
-    ):
+    def test_add_real_triggers_ring_rebuild(self, real_manager, sample_vip, mock_ch_rings_map):
         """Test adding backend triggers hash ring rebuild."""
         real_manager.add_real(sample_vip, "10.0.0.100")
 
@@ -144,9 +132,7 @@ class TestRealManagerRemoveReal:
         assert result is True
         assert len(sample_vip.reals) == 0
 
-    def test_remove_nonexistent_real_returns_false(
-        self, real_manager, sample_vip
-    ):
+    def test_remove_nonexistent_real_returns_false(self, real_manager, sample_vip):
         """Test removing nonexistent backend returns False."""
         result = real_manager.remove_real(sample_vip, "10.0.0.100")
 
@@ -185,9 +171,7 @@ class TestRealManagerRemoveReal:
         # Index should be freed
         mock_reals_map.free_index.assert_called_with(index)
 
-    def test_remove_real_triggers_ring_rebuild(
-        self, real_manager, sample_vip, mock_ch_rings_map
-    ):
+    def test_remove_real_triggers_ring_rebuild(self, real_manager, sample_vip, mock_ch_rings_map):
         """Test removing backend triggers hash ring rebuild."""
         real_manager.add_real(sample_vip, "10.0.0.100")
         mock_ch_rings_map.reset_mock()
@@ -211,9 +195,7 @@ class TestRealManagerWeightManagement:
         real = real_manager.get_real(sample_vip, "10.0.0.100")
         assert real.weight == 50
 
-    def test_set_weight_triggers_ring_rebuild(
-        self, real_manager, sample_vip, mock_ch_rings_map
-    ):
+    def test_set_weight_triggers_ring_rebuild(self, real_manager, sample_vip, mock_ch_rings_map):
         """Test changing weight triggers hash ring rebuild."""
         real_manager.add_real(sample_vip, "10.0.0.100", weight=100)
         mock_ch_rings_map.reset_mock()
@@ -223,9 +205,7 @@ class TestRealManagerWeightManagement:
         # Ring should be rebuilt
         mock_ch_rings_map.write_ring.assert_called()
 
-    def test_set_weight_same_value_rebuilds_ring(
-        self, real_manager, sample_vip, mock_ch_rings_map
-    ):
+    def test_set_weight_same_value_rebuilds_ring(self, real_manager, sample_vip, mock_ch_rings_map):
         """Test setting same weight still rebuilds ring."""
         real_manager.add_real(sample_vip, "10.0.0.100", weight=100)
         mock_ch_rings_map.reset_mock()
@@ -235,9 +215,7 @@ class TestRealManagerWeightManagement:
         # Ring should NOT be rebuilt if weight unchanged
         mock_ch_rings_map.write_ring.assert_not_called()
 
-    def test_set_weight_nonexistent_real_returns_false(
-        self, real_manager, sample_vip
-    ):
+    def test_set_weight_nonexistent_real_returns_false(self, real_manager, sample_vip):
         """Test setting weight for nonexistent backend returns False."""
         result = real_manager.set_weight(sample_vip, "10.0.0.100", weight=50)
 
@@ -340,9 +318,7 @@ class TestRealManagerQueries:
 class TestRealManagerRingRebuild:
     """Test consistent hash ring rebuild."""
 
-    def test_rebuild_ring_with_single_backend(
-        self, real_manager, sample_vip, mock_ring_builder
-    ):
+    def test_rebuild_ring_with_single_backend(self, real_manager, sample_vip, mock_ring_builder):
         """Test rebuilding ring with single backend."""
         real_manager._ring_builder = mock_ring_builder
         real = real_manager.add_real(sample_vip, "10.0.0.100", weight=100)
@@ -354,9 +330,7 @@ class TestRealManagerRingRebuild:
         assert endpoints[0].num == real.index
         assert endpoints[0].weight == 100
 
-    def test_rebuild_ring_with_multiple_backends(
-        self, real_manager, sample_vip, mock_ring_builder
-    ):
+    def test_rebuild_ring_with_multiple_backends(self, real_manager, sample_vip, mock_ring_builder):
         """Test rebuilding ring with multiple backends."""
         real_manager._ring_builder = mock_ring_builder
         real1 = real_manager.add_real(sample_vip, "10.0.0.100", weight=100)
@@ -437,8 +411,7 @@ class TestRealManagerThreadSafety:
 
         # Create threads
         threads = [
-            threading.Thread(target=add_real, args=(f"10.0.0.{i}",))
-            for i in range(100, 110)
+            threading.Thread(target=add_real, args=(f"10.0.0.{i}",)) for i in range(100, 110)
         ]
 
         # Start all threads

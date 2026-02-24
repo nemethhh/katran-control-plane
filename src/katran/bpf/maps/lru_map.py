@@ -28,10 +28,10 @@ from __future__ import annotations
 from katran.bpf.map_manager import BpfMap
 from katran.core.constants import DEFAULT_LRU_SIZE
 from katran.core.types import (
-    FlowKey,
-    RealPosLru,
     FLOW_KEY_SIZE,
     REAL_POS_LRU_SIZE,
+    FlowKey,
+    RealPosLru,
 )
 
 
@@ -280,6 +280,4 @@ class PerCpuLruMap:
             List of backend indices (one per CPU, None if not cached)
         """
         # Placeholder - would need to open inner maps from array-of-maps
-        raise NotImplementedError(
-            "Per-CPU LRU map access requires array-of-maps handling"
-        )
+        raise NotImplementedError("Per-CPU LRU map access requires array-of-maps handling")
