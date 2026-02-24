@@ -3,3 +3,6 @@ katran-bpfs
 .venv
 .pytest_cache
 __pycache__
+htmlcov
+.ruff_cache
+.claude
