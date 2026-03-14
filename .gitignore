@@ -19,3 +19,4 @@ htmlcov/
 
 # IDE / local
 .claude/
+.worktrees/
