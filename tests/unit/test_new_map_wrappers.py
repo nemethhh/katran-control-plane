@@ -314,3 +314,44 @@ class TestPerHcKeyStatsMapSerialization:
 
         m = PerHcKeyStatsMap.__new__(PerHcKeyStatsMap)
         assert m._aggregate_values([10, 20, 30]) == 60
+
+
+# =========================================================================
+# Task 11: HcRealsMap Rewrite (u32 -> HcRealDefinition)
+# =========================================================================
+
+
+class TestHcRealsMapRewrite:
+    def test_value_size_is_20(self) -> None:
+        from katran.bpf.maps.hc_reals_map import HcRealsMap
+
+        m = HcRealsMap.__new__(HcRealsMap)
+        assert m._value_size == 20
+
+    def test_serialize_value_ipv4(self) -> None:
+        from katran.bpf.maps.hc_reals_map import HcRealsMap
+
+        m = HcRealsMap.__new__(HcRealsMap)
+        m._tunnel_based_hc = True
+        hrd = HcRealDefinition(address="10.0.0.1", flags=0)
+        data = m._serialize_value(hrd)
+        assert len(data) == 20
+
+    def test_roundtrip_tunnel_mode(self) -> None:
+        from katran.bpf.maps.hc_reals_map import HcRealsMap
+
+        m = HcRealsMap.__new__(HcRealsMap)
+        m._tunnel_based_hc = True
+        hrd = HcRealDefinition(address="10.0.0.1", flags=0)
+        restored = m._deserialize_value(m._serialize_value(hrd))
+        assert restored.address == "10.0.0.1"
+        assert restored.flags == 0
+
+    def test_roundtrip_direct_mode(self) -> None:
+        from katran.bpf.maps.hc_reals_map import HcRealsMap
+
+        m = HcRealsMap.__new__(HcRealsMap)
+        m._tunnel_based_hc = False
+        hrd = HcRealDefinition(address="10.0.0.1", flags=0)
+        restored = m._deserialize_value(m._serialize_value(hrd))
+        assert restored.address == "10.0.0.1"
