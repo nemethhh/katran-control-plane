@@ -1,6 +1,9 @@
 """Load balancer logic module."""
 
 from katran.lb.decap_manager import DecapManager
+from katran.lb.down_real_manager import DownRealManager
+from katran.lb.hc_manager import HealthCheckManager
+from katran.lb.lru_manager import LruManager
 from katran.lb.maglev import (
     Endpoint,
     MaglevHashRing,
@@ -25,6 +28,9 @@ __all__ = [
     "RealManager",
     # Feature managers
     "DecapManager",
+    "DownRealManager",
+    "HealthCheckManager",
+    "LruManager",
     "SrcRoutingManager",
     "QuicManager",
 ]
