@@ -421,6 +421,9 @@ class TestMetricsEndpoint:
             "pass": 0,
         }
         mock_service.stats_map.get_counter_per_cpu.return_value = []
+        # New collectors access _stats_manager and real_manager._reals
+        mock_service._stats_manager = None
+        mock_service.real_manager._reals = {}
 
         app = create_app(service=mock_service)
 

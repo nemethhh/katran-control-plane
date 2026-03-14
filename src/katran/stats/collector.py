@@ -74,6 +74,10 @@ class KatranMetricsCollector(Collector):
             metrics.extend(self._collect_global_stats())
             metrics.extend(self._collect_xdp_stats())
             metrics.extend(self._collect_per_cpu_stats())
+            metrics.extend(self._collect_extended_global_stats())
+            metrics.extend(self._collect_per_real_stats())
+            metrics.extend(self._collect_quic_detail_stats())
+            metrics.extend(self._collect_hc_program_stats())
         except Exception:
             # Last resort: catch any unexpected errors to prevent server crash
             log.error("Unexpected error in metrics collection", exc_info=True)
@@ -338,3 +342,147 @@ class KatranMetricsCollector(Collector):
             yield cpu_packets
         except Exception:
             log.warning("Failed to collect per-CPU stats", exc_info=True)
+
+    def _collect_extended_global_stats(self) -> Generator[Any, None, None]:
+        """Collect extended global statistics from StatsManager."""
+        if not self.service.is_running:
+            return
+        stats_mgr = getattr(self.service, "_stats_manager", None)
+        if stats_mgr is None:
+            return
+        try:
+            metric_defs = [
+                ("katran_ch_drops_total", "CH drop packets", stats_mgr.get_ch_drop_stats),
+                (
+                    "katran_encap_failures_total",
+                    "Encap failure packets",
+                    stats_mgr.get_encap_fail_stats,
+                ),
+                (
+                    "katran_lru_fallback_hits_total",
+                    "LRU fallback hits",
+                    stats_mgr.get_lru_fallback_stats,
+                ),
+                (
+                    "katran_global_lru_hits_total",
+                    "Global LRU hits",
+                    stats_mgr.get_global_lru_stats,
+                ),
+                ("katran_decap_packets_total", "Decap packets", stats_mgr.get_decap_stats),
+                (
+                    "katran_src_routing_packets_total",
+                    "Src routing packets",
+                    stats_mgr.get_src_routing_stats,
+                ),
+                (
+                    "katran_quic_icmp_total",
+                    "QUIC ICMP packets",
+                    stats_mgr.get_quic_icmp_stats,
+                ),
+                ("katran_icmp_ptb_v4_total", "ICMP PTB v4", stats_mgr.get_icmp_ptb_v4_stats),
+                ("katran_icmp_ptb_v6_total", "ICMP PTB v6", stats_mgr.get_icmp_ptb_v6_stats),
+                ("katran_xpop_decap_total", "XPop decap", stats_mgr.get_xpop_decap_stats),
+                (
+                    "katran_udp_flow_migration_total",
+                    "UDP flow migration",
+                    stats_mgr.get_udp_flow_migration_stats,
+                ),
+            ]
+            for name, desc, getter in metric_defs:
+                stats = getter()
+                metric = CounterMetricFamily(name, desc)
+                metric.add_metric([], stats.v1)
+                yield metric
+        except Exception:
+            log.warning("Failed to collect extended global stats", exc_info=True)
+
+    def _collect_per_real_stats(self) -> Generator[Any, None, None]:
+        """Collect per-real stats."""
+        if not self.service.is_running:
+            return
+        stats_mgr = getattr(self.service, "_stats_manager", None)
+        real_mgr = getattr(self.service, "real_manager", None)
+        if stats_mgr is None or real_mgr is None:
+            return
+        try:
+            packets = CounterMetricFamily(
+                "katran_real_packets_total",
+                "Packets forwarded per real",
+                labels=["address"],
+            )
+            bytes_metric = CounterMetricFamily(
+                "katran_real_bytes_total",
+                "Bytes forwarded per real",
+                labels=["address"],
+            )
+            for address, meta in real_mgr._reals.items():
+                real_stats = stats_mgr.get_real_stats(meta.num)
+                packets.add_metric([str(address)], real_stats.v1)
+                bytes_metric.add_metric([str(address)], real_stats.v2)
+            yield packets
+            yield bytes_metric
+        except Exception:
+            log.warning("Failed to collect per-real stats", exc_info=True)
+
+    def _collect_quic_detail_stats(self) -> Generator[Any, None, None]:
+        """Collect detailed QUIC packet statistics."""
+        if not self.service.is_running:
+            return
+        stats_mgr = getattr(self.service, "_stats_manager", None)
+        if stats_mgr is None:
+            return
+        try:
+            qstats = stats_mgr.get_quic_packet_stats()
+            quic_metrics = [
+                ("katran_quic_ch_routed_total", "QUIC CH routed", qstats.ch_routed),
+                ("katran_quic_cid_routed_total", "QUIC CID routed", qstats.cid_routed),
+                (
+                    "katran_quic_cid_invalid_server_id_total",
+                    "QUIC invalid server ID",
+                    qstats.cid_invalid_server_id,
+                ),
+                (
+                    "katran_quic_cid_unknown_real_dropped_total",
+                    "QUIC unknown real dropped",
+                    qstats.cid_unknown_real_dropped,
+                ),
+            ]
+            for name, desc, value in quic_metrics:
+                metric = CounterMetricFamily(name, desc)
+                metric.add_metric([], value)
+                yield metric
+        except Exception:
+            log.warning("Failed to collect QUIC detail stats", exc_info=True)
+
+    def _collect_hc_program_stats(self) -> Generator[Any, None, None]:
+        """Collect HC BPF program statistics."""
+        if not self.service.is_running:
+            return
+        stats_mgr = getattr(self.service, "_stats_manager", None)
+        if stats_mgr is None:
+            return
+        try:
+            hc = stats_mgr.get_hc_program_stats()
+            hc_metrics = [
+                (
+                    "katran_hc_packets_processed_total",
+                    "HC packets processed",
+                    hc.packets_processed,
+                ),
+                (
+                    "katran_hc_packets_dropped_total",
+                    "HC packets dropped",
+                    hc.packets_dropped,
+                ),
+                (
+                    "katran_hc_packets_skipped_total",
+                    "HC packets skipped",
+                    hc.packets_skipped,
+                ),
+            ]
+            for name, desc, value in hc_metrics:
+                metric = CounterMetricFamily(name, desc)
+                metric.add_metric([], value)
+                yield metric
+        except Exception:
+            log.warning("Failed to collect HC program stats", exc_info=True)
