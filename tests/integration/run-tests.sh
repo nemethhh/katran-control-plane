@@ -143,21 +143,23 @@ PYTEST_ARGS="-v --tb=short -s"
 PYTEST_OUT=$(docker_exec pytest tests/integration/ tests/e2e/ $PYTEST_ARGS 2>&1) || true
 
 # Parse pytest summary line (e.g., "====== 41 passed in 89.61s ======")
-SUMMARY_LINE=$(echo "$PYTEST_OUT" | grep -E "^=+.*passed.*=+$" | tail -1)
+# Match any summary containing passed, failed, error, or skipped
+SUMMARY_LINE=$(echo "$PYTEST_OUT" | grep -E "^=+.*(passed|failed|error|no tests).*=+$" | tail -1)
 PASSED=$(echo "$SUMMARY_LINE" | grep -oP '\d+(?= passed)' || echo "0")
 FAILED=$(echo "$SUMMARY_LINE" | grep -oP '\d+(?= failed)' || echo "0")
+ERRORS=$(echo "$SUMMARY_LINE" | grep -oP '\d+(?= error)' || echo "0")
 
-echo "  Results: $PASSED passed, $FAILED failed"
+echo "  Results: $PASSED passed, $FAILED failed, $ERRORS errors"
 
-# Always show output if there are failures
-if [ "$FAILED" -gt 0 ]; then
-    echo -e "${RED}Test failures detected. Output:${NC}"
+# Show output if there are failures, errors, or no tests collected
+if [ "$FAILED" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$PASSED" -eq 0 ]; then
+    echo -e "${RED}Test output:${NC}"
     echo "$PYTEST_OUT"
 elif [ "$DEBUG" = "1" ]; then
     echo "$PYTEST_OUT"
 fi
 
-[ "$FAILED" -eq 0 ] && [ "$PASSED" -gt 0 ] && print_pass "Python tests passed" || print_fail "Python tests failed"
+[ "$FAILED" -eq 0 ] && [ "$ERRORS" -eq 0 ] && [ "$PASSED" -gt 0 ] && print_pass "Python tests passed" || print_fail "Python tests failed"
 
 # Test 4: Cleanup
 print_section "Test 4: Cleanup"
