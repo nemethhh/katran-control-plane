@@ -81,3 +81,65 @@ class TestNewExceptions:
     def test_decap_error(self):
         err = DecapError("max destinations reached")
         assert isinstance(err, KatranError)
+
+
+import pytest
+
+from katran.core.config import KatranConfig
+from katran.core.constants import KatranFeature as KF
+from katran.core.exceptions import FeatureNotEnabledError as FNE
+from katran.service import KatranService
+
+
+class TestServiceFeatureGating:
+    def test_require_feature_raises(self):
+        cfg = KatranConfig()
+        svc = KatranService(cfg)
+        with pytest.raises(FNE):
+            svc._require_feature(KF.SRC_ROUTING)
+
+    def test_has_feature_false(self):
+        cfg = KatranConfig()
+        svc = KatranService(cfg)
+        assert svc.has_feature(KF.SRC_ROUTING) is False
+
+    def test_has_feature_true(self):
+        cfg = KatranConfig.from_dict({"features": ["src_routing"]})
+        svc = KatranService(cfg)
+        assert svc.has_feature(KF.SRC_ROUTING) is True
+
+    def test_has_feature_multiple(self):
+        cfg = KatranConfig.from_dict({"features": ["src_routing", "inline_decap"]})
+        svc = KatranService(cfg)
+        assert svc.has_feature(KF.SRC_ROUTING) is True
+        assert svc.has_feature(KF.INLINE_DECAP) is True
+        assert svc.has_feature(KF.DIRECT_HEALTHCHECKING) is False
+
+    def test_feature_gated_method_raises_when_disabled(self):
+        cfg = KatranConfig()
+        svc = KatranService(cfg)
+        with pytest.raises(FNE, match="SRC_ROUTING"):
+            svc.add_src_routing_rules(["10.0.0.0/8"], "10.1.1.1")
+
+    def test_feature_gated_decap_raises_when_disabled(self):
+        cfg = KatranConfig()
+        svc = KatranService(cfg)
+        with pytest.raises(FNE, match="INLINE_DECAP"):
+            svc.add_decap_dst("10.1.1.1")
+
+    def test_feature_gated_hc_raises_when_disabled(self):
+        cfg = KatranConfig()
+        svc = KatranService(cfg)
+        with pytest.raises(FNE, match="DIRECT_HEALTHCHECKING"):
+            svc.add_hc_dst(100, "10.1.1.1")
+
+    def test_new_manager_attributes_initialized_none(self):
+        cfg = KatranConfig()
+        svc = KatranService(cfg)
+        assert svc._src_routing_manager is None
+        assert svc._decap_manager is None
+        assert svc._quic_manager is None
+        assert svc._hc_manager is None
+        assert svc._lru_manager is None
+        assert svc._down_real_manager is None
+        assert svc._stats_manager is None
