@@ -143,3 +143,28 @@ class TestBpfMapUpdateFlags:
         assert BpfMapUpdateFlags.ANY == 0
         assert BpfMapUpdateFlags.NOEXIST == 1
         assert BpfMapUpdateFlags.EXIST == 2
+
+
+import ctypes
+
+
+class TestBpfMapCreate:
+    def test_bpf_attr_map_create_struct(self):
+        from katran.bpf.map_manager import BpfAttrMapCreate
+        attr = BpfAttrMapCreate()
+        attr.map_type = 1
+        attr.key_size = 4
+        attr.value_size = 4
+        attr.max_entries = 100
+        attr.map_flags = 0
+        assert ctypes.sizeof(attr) == 20
+
+    def test_bpf_attr_get_id_struct(self):
+        from katran.bpf.map_manager import BpfAttrGetId
+        attr = BpfAttrGetId()
+        attr.map_id = 42
+        assert ctypes.sizeof(attr) >= 4
+
+    def test_bpf_cmd_get_fd_by_id(self):
+        from katran.bpf.map_manager import BpfCmd
+        assert BpfCmd.MAP_GET_FD_BY_ID == 14

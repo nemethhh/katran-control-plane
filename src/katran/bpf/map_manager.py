@@ -71,6 +71,7 @@ class BpfCmd(IntEnum):
     PROG_LOAD = 5
     OBJ_PIN = 6
     OBJ_GET = 7
+    MAP_GET_FD_BY_ID = 14
     MAP_LOOKUP_AND_DELETE_ELEM = 17
     MAP_FREEZE = 22
     MAP_LOOKUP_BATCH = 24
@@ -155,6 +156,63 @@ class BpfAttrObjGet(ctypes.Structure):
         ("bpf_fd", ctypes.c_uint32),
         ("file_flags", ctypes.c_uint32),
     ]
+
+
+class BpfAttrMapCreate(ctypes.Structure):
+    """Attribute for BPF_MAP_CREATE syscall."""
+
+    _fields_ = [
+        ("map_type", ctypes.c_uint32),
+        ("key_size", ctypes.c_uint32),
+        ("value_size", ctypes.c_uint32),
+        ("max_entries", ctypes.c_uint32),
+        ("map_flags", ctypes.c_uint32),
+    ]
+
+
+class BpfAttrGetId(ctypes.Structure):
+    """Attribute for BPF_MAP_GET_FD_BY_ID syscall."""
+
+    _fields_ = [
+        ("map_id", ctypes.c_uint32),
+    ]
+
+
+BPF_F_NO_PREALLOC = 1
+
+
+def bpf_map_create(
+    map_type: int, key_size: int, value_size: int, max_entries: int, flags: int = 0
+) -> int:
+    """Create a new BPF map. Returns file descriptor."""
+    buf = (ctypes.c_char * 128)()
+    attr = BpfAttrMapCreate.from_buffer(buf)
+    attr.map_type = map_type
+    attr.key_size = key_size
+    attr.value_size = value_size
+    attr.max_entries = max_entries
+    attr.map_flags = flags
+    result = _bpf_syscall(BpfCmd.MAP_CREATE, attr, 128)
+    if result < 0:
+        raise MapOperationError(
+            "map_create", f"type={map_type}",
+            error_code=-result, message=os.strerror(-result)
+        )
+    return result
+
+
+def bpf_map_get_fd_by_id(map_id: int) -> int:
+    """Get a map FD from a kernel map ID. Returns file descriptor."""
+    buf = (ctypes.c_char * 128)()
+    attr = BpfAttrGetId.from_buffer(buf)
+    attr.map_id = map_id
+    result = _bpf_syscall(BpfCmd.MAP_GET_FD_BY_ID, attr, 128)
+    if result < 0:
+        raise MapOperationError(
+            "get_fd_by_id", f"map_id={map_id}",
+            error_code=-result, message=os.strerror(-result)
+        )
+    return result
 
 
 class BpfMapInfo(ctypes.Structure):
