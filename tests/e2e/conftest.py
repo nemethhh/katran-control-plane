@@ -17,11 +17,12 @@ import pytest
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip all E2E tests when not running inside the E2E environment."""
+    """Skip E2E tests when not running inside the E2E environment."""
     if os.environ.get("KATRAN_E2E") != "1":
         skip = pytest.mark.skip(reason="KATRAN_E2E not set (run via run-e2e.sh)")
         for item in items:
-            item.add_marker(skip)
+            if "e2e" in item.nodeid.split("::")[0]:
+                item.add_marker(skip)
 
 
 # ---------------------------------------------------------------------------
