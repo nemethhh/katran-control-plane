@@ -271,3 +271,46 @@ class TestHcPcktMacsSerialization:
         data = m._serialize_value(mac)
         restored = m._deserialize_value(data)
         assert restored.mac == mac.mac
+
+
+# =========================================================================
+# Task 10: HC Stats + Per-HC-Key Stats Maps
+# =========================================================================
+
+
+class TestHcStatsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.hc_stats_map import HC_STATS_VALUE_SIZE, HcStatsMap
+
+        m = HcStatsMap.__new__(HcStatsMap)
+        assert m._value_size == HC_STATS_VALUE_SIZE
+
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.hc_stats_map import HcStatsMap
+        from katran.core.types import HealthCheckProgStats
+
+        m = HcStatsMap.__new__(HcStatsMap)
+        val = HealthCheckProgStats(
+            packets_processed=10,
+            packets_dropped=2,
+            packets_skipped=3,
+            packets_too_big=1,
+            packets_dst_matched=4,
+        )
+        restored = m._deserialize_value(m._serialize_value(val))
+        assert restored.packets_processed == 10
+        assert restored.packets_dst_matched == 4
+
+
+class TestPerHcKeyStatsMapSerialization:
+    def test_value_is_u64(self) -> None:
+        from katran.bpf.maps.per_hckey_stats_map import PerHcKeyStatsMap
+
+        m = PerHcKeyStatsMap.__new__(PerHcKeyStatsMap)
+        assert m._value_size == 8
+
+    def test_aggregate(self) -> None:
+        from katran.bpf.maps.per_hckey_stats_map import PerHcKeyStatsMap
+
+        m = PerHcKeyStatsMap.__new__(PerHcKeyStatsMap)
+        assert m._aggregate_values([10, 20, 30]) == 60
