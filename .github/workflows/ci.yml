@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  KATRAN_BPF_VERSION: "v2026.03.14-4065efa8"
+  KATRAN_BPF_VERSION: "v1.0.0"
   KATRAN_BPF_REPO: "nemethhh/katran-bpf-builder"
   KATRAN_BPF_VARIANT: "decap-ipip"
 

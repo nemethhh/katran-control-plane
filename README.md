@@ -28,6 +28,10 @@ Provides a management layer over Katran's BPF maps, enabling VIP and backend man
 - Python 3.11 or 3.12
 - Compiled Katran BPF programs (`.o` files)
 
+### Tested against
+
+Integration and E2E tests run against pre-compiled BPF programs from [katran-bpf-builder v1.0.0](https://github.com/nemethhh/katran-bpf-builder/releases/tag/v1.0.0) (katran upstream commit [`7d8d7dc1`](https://github.com/facebookincubator/katran/commit/7d8d7dc1b355c481dd9255fcc5c4f32a7cdb40ca), `decap-ipip` flavor).
+
 ## Installation
 
 ```bash
