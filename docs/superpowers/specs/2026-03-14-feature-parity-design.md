@@ -151,7 +151,13 @@ class HcRealDefinition:
     """Value type for hc_reals_map. Stores the actual backend address and flags.
 
     BPF layout: 16-byte address union + 1-byte flags + 3-byte padding = 20 bytes.
-    This is the same layout as RealDefinition.
+
+    BYTE ORDER NOTE: The C++ reference has a byte-order conditional in
+    addHealthcheckerDst(). When tunnelBasedHCEncap is True (default),
+    IPv4 addresses are written in host endian (parseAddrToInt). When
+    directHealthchecking is enabled, addresses use network byte order
+    (parseAddrToBe). The HealthCheckManager must accept a `tunnel_based_hc`
+    flag in __init__ to control serialization behavior.
 
     NOTE: The existing HcRealsMap incorrectly stores u32 real_index values.
     It must be rewritten to store HcRealDefinition (hc_real_definition struct)
@@ -247,6 +253,7 @@ class KatranConfig(BaseModel):
     # Existing fields...
     # New - KatranFeature IntFlag, serialized as int in YAML
     features: int = 0  # KatranFeature flags, validated in model_validator
+    tunnel_based_hc: bool = True  # HC uses tunnel encap (affects address byte order)
 
     @field_validator("features", mode="before")
     @classmethod
@@ -315,6 +322,8 @@ class BpfAttrGetId(ctypes.Structure):
     ]
 ```
 
+**Kernel bpf_attr union sizing:** These structures must be embedded within a properly-sized `bpf_attr` buffer, matching the existing pattern in `map_manager.py` for `BpfAttrMapElem`. The kernel validates the full command structure. Use a `ctypes.Union` or zero-padded byte array that is at least as large as the kernel expects for each command.
+
 New module-level functions:
 
 - `bpf_map_create(map_type, key_size, value_size, max_entries, flags) -> fd` — create inner maps dynamically
@@ -338,7 +347,7 @@ def get_index_for_real(self, address: str) -> int | None:
     ...
 ```
 
-These accept string addresses (parsing internally), matching how the reference's `increaseRefCountForReal` / `decreaseRefCountForReal` work. The `get_index_for_real` method is needed by `QuicManager.revalidate_server_ids()`.
+These are thin public wrappers that parse the address string and delegate to the existing `_increase_ref_count(IpAddress)` / `_decrease_ref_count(IpAddress)`. `increase_ref_count` returns `RealMeta.num` (the real index), not the full `RealMeta`. The `get_index_for_real` method is needed by `QuicManager.revalidate_server_ids()`.
 
 ## 4. New BPF Map Wrappers
 
@@ -372,6 +381,8 @@ All in `src/katran/bpf/maps/`, each following existing `BpfMap[K, V]` / `PerCpuB
 
 - **decap_dst key format**: The key is a 16-byte `address` struct (same as `balancer_structs.h`). IPv4 addresses go in the first 4 bytes with 12 zero-padding bytes, matching the existing codebase convention for all address types.
 
+- **lru_miss_stats per-CPU aggregation**: `LruMissStatsMap` is `PERCPU_ARRAY` with `c_uint32` values. Per-CPU values are aggregated by **summation** (matching the C++ reference pattern). `StatsManager.get_lru_miss_stats_for_real(index)` returns the summed count across all CPUs.
+
 - **HASH_OF_MAPS workflow** (vip_to_down_reals): See section 10 for detailed inner map lifecycle.
 
 ## 5. Health Check Manager
@@ -394,9 +405,13 @@ class HealthCheckManager:
         hc_stats_map: HcStatsMap,
         per_hckey_stats: PerHcKeyStatsMap,
         max_vips: int = MAX_VIPS,
+        tunnel_based_hc: bool = True,  # controls HC address byte order
     ): ...
 
-    # Destination management (writes IP address to hc_reals_map, not index)
+    # Destination management (writes IP address to hc_reals_map, not index).
+    # Byte order depends on tunnel_based_hc flag:
+    #   tunnel_based_hc=True (default): IPv4 host endian, IPv6 network byte order
+    #   tunnel_based_hc=False (direct): both in network byte order
     def add_hc_dst(self, somark: int, dst: str) -> None: ...
     def del_hc_dst(self, somark: int) -> None: ...
     def get_hc_dsts(self) -> dict[int, str]: ...
@@ -622,13 +637,13 @@ The outer map stores VipKey -> inner_map_id. Inner maps are `BPF_MAP_TYPE_HASH` 
 2. Convert VipKey to 20-byte BPF key (vip_definition layout)
 3. Lookup outer map: `bpf_map_lookup_elem(outer_fd, &vip_key)` -> inner_map_id (u32)
 4. If ENOENT (no inner map for this VIP):
-   a. Create new inner map: `bpf_map_create(BPF_MAP_TYPE_HASH, key_size=4, value_size=1, max_entries=MAX_REALS, flags=BPF_F_NO_PREALLOC)` -> new_inner_fd
-   b. Update outer map: `bpf_map_update_elem(outer_fd, &vip_key, &new_inner_fd)` (kernel takes ownership of inner map reference)
-   c. `close(new_inner_fd)` (kernel holds its own reference now)
-   d. Re-lookup outer map to get the kernel-assigned inner_map_id
-5. Get inner map FD: `bpf_map_get_fd_by_id(inner_map_id)` -> inner_fd
+   a. Create new inner map: `bpf_map_create(BPF_MAP_TYPE_HASH, key_size=4, value_size=1, max_entries=MAX_REALS, flags=BPF_F_NO_PREALLOC)` -> inner_fd
+   b. Update outer map: `bpf_map_update_elem(outer_fd, &vip_key, &inner_fd)`
+   c. Use inner_fd directly (no re-lookup needed, matching C++ pattern)
+5. Else (inner map exists):
+   a. Get inner map FD: `bpf_map_get_fd_by_id(inner_map_id)` -> inner_fd
 6. Write to inner map: `bpf_map_update_elem(inner_fd, &real_index, &dummy_u8_1)`
-7. `close(inner_fd)` (must always close to avoid FD leak)
+7. `close(inner_fd)` (must always close to avoid FD leak, use try/finally)
 
 **check_real(vip, real_index):**
 
@@ -757,15 +772,29 @@ No dedicated manager. Methods on KatranService:
 
 ```python
 def set_src_ip_for_encap(self, address: str) -> None:
-    """Write source IP to pckt_srcs and hc_pckt_srcs_map. Auto-detects v4/v6."""
+    """Write source IP to pckt_srcs and hc_pckt_srcs_map. Auto-detects v4/v6.
+
+    Writes to whichever maps were successfully opened. pckt_srcs exists when
+    GUE_ENCAP or DECAP_STRICT_DESTINATION is compiled in; hc_pckt_srcs_map
+    exists when DIRECT_HEALTHCHECKING is enabled. Fails only if neither
+    map was opened.
+    """
     from ipaddress import ip_address
     addr = ip_address(address)
     index = V4_SRC_INDEX if addr.version == 4 else V6_SRC_INDEX
     real_def = RealDefinition(address=addr)
-    self._pckt_srcs_map.set(index, real_def)
+    written = False
+    if self._pckt_srcs_map is not None:
+        self._pckt_srcs_map.set(index, real_def)
+        written = True
     if self._hc_pckt_srcs_map is not None:
         self._hc_pckt_srcs_map.set(index, real_def)
+        written = True
+    if not written:
+        raise FeatureNotEnabledError("GUE_ENCAP or DIRECT_HEALTHCHECKING")
 ```
+
+**pckt_srcs map opening**: The `pckt_srcs` map is opened on a **best-effort** basis (not feature-flag-gated), since it may be present for GUE encap, decap strict destination, or other scenarios. Use `try_open` like other optional maps.
 
 ## 13. Feature Flags (Config-Driven)
 
@@ -782,15 +811,26 @@ def _open_optional_feature_maps(self) -> None:
     if KatranFeature.INLINE_DECAP in features:
         self._decap_dst_map = DecapDstMap(...)
 
-    if KatranFeature.GUE_ENCAP in features:
-        self._pckt_srcs_map = PcktSrcsMap(...)
-
     if KatranFeature.DIRECT_HEALTHCHECKING in features:
         # Open all 6 HC-specific maps
-        ...
+        self._hc_key_map = HcKeyMap(...)
+        self._hc_ctrl_map = HcCtrlMap(...)
+        self._hc_pckt_srcs_map = HcPcktSrcsMap(...)
+        self._hc_pckt_macs = HcPcktMacsMap(...)
+        self._hc_stats_map = HcStatsMap(...)
+        self._per_hckey_stats = PerHcKeyStatsMap(...)
 
-    # Stats maps always best-effort (try_open)
-    ...
+    # Best-effort maps (may exist depending on BPF compile flags)
+    self._pckt_srcs_map = self._try_open(PcktSrcsMap, ...)
+    self._server_id_map = self._try_open(ServerIdMap, ...)
+    self._down_reals_map = self._try_open(VipToDownRealsMap, ...)
+
+    # Stats maps always best-effort
+    self._reals_stats_map = self._try_open(RealsStatsMap, ...)
+    self._lru_miss_stats_map = self._try_open(LruMissStatsMap, ...)
+    self._quic_stats_map = self._try_open(QuicStatsMap, ...)
+    self._decap_vip_stats_map = self._try_open(DecapVipStatsMap, ...)
+    self._server_id_stats_map = self._try_open(ServerIdStatsMap, ...)
 ```
 
 Feature check at operation time:
