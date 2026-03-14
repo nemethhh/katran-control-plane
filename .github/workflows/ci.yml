@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+env:
+  KATRAN_BPF_VERSION: "v2026.03.14-4065efa8"
+  KATRAN_BPF_REPO: "nemethhh/katran-bpf-builder"
+  KATRAN_BPF_VARIANT: "decap-ipip"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: make venv
+
+      - name: Run linters
+        run: make lint
+
+  unit-test:
+    name: Unit Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: make venv
+
+      - name: Run unit tests with coverage
+        run: make unit-test-cov
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.11'
+        with:
+          name: coverage-report
+          path: htmlcov/
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download BPF programs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ env.KATRAN_BPF_VERSION }} \
+            --repo ${{ env.KATRAN_BPF_REPO }} \
+            --pattern '*.zip' \
+            -D /tmp/katran-bpf
+          unzip /tmp/katran-bpf/*.zip -d /tmp/katran-bpf-extracted
+          mkdir -p katran-bpfs
+          cp /tmp/katran-bpf-extracted/${{ env.KATRAN_BPF_VARIANT }}/* katran-bpfs/
+
+      - name: Run integration tests
+        run: make integration-test
+
+  e2e-test:
+    name: E2E Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download BPF programs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ env.KATRAN_BPF_VERSION }} \
+            --repo ${{ env.KATRAN_BPF_REPO }} \
+            --pattern '*.zip' \
+            -D /tmp/katran-bpf
+          unzip /tmp/katran-bpf/*.zip -d /tmp/katran-bpf-extracted
+          mkdir -p katran-bpfs
+          cp /tmp/katran-bpf-extracted/${{ env.KATRAN_BPF_VARIANT }}/* katran-bpfs/
+
+      - name: Run E2E tests
+        run: make e2e-multi
