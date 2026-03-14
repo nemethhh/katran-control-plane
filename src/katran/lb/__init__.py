@@ -14,6 +14,7 @@ from katran.lb.maglev import (
 from katran.lb.quic_manager import QuicManager
 from katran.lb.real_manager import RealManager
 from katran.lb.src_routing_manager import SrcRoutingManager
+from katran.lb.stats_manager import StatsManager
 from katran.lb.vip_manager import VipManager
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     "HealthCheckManager",
     "LruManager",
     "SrcRoutingManager",
+    "StatsManager",
     "QuicManager",
 ]
