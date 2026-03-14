@@ -110,3 +110,118 @@ class TestPcktSrcsMapSerialization:
         data = m._serialize_value(rd)
         restored = m._deserialize_value(data)
         assert restored.address == IPv4Address("10.0.0.1")
+
+
+# =========================================================================
+# Task 8: Per-CPU Stats Map Wrappers
+# =========================================================================
+
+
+class TestRealsStatsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.reals_stats_map import RealsStatsMap
+
+        m = RealsStatsMap.__new__(RealsStatsMap)
+        assert m._value_size == 16
+
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.reals_stats_map import RealsStatsMap
+        from katran.core.types import LbStats
+
+        m = RealsStatsMap.__new__(RealsStatsMap)
+        val = LbStats(v1=42, v2=99)
+        assert m._deserialize_value(m._serialize_value(val)) == val
+
+    def test_aggregate(self) -> None:
+        from katran.bpf.maps.reals_stats_map import RealsStatsMap
+        from katran.core.types import LbStats
+
+        m = RealsStatsMap.__new__(RealsStatsMap)
+        values = [LbStats(v1=10, v2=20), LbStats(v1=30, v2=40)]
+        agg = m._aggregate_values(values)
+        assert agg.v1 == 40
+        assert agg.v2 == 60
+
+
+class TestLruMissStatsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.lru_miss_stats_map import LruMissStatsMap
+
+        m = LruMissStatsMap.__new__(LruMissStatsMap)
+        assert m._value_size == 4
+
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.lru_miss_stats_map import LruMissStatsMap
+
+        m = LruMissStatsMap.__new__(LruMissStatsMap)
+        assert m._deserialize_value(m._serialize_value(123)) == 123
+
+    def test_aggregate(self) -> None:
+        from katran.bpf.maps.lru_miss_stats_map import LruMissStatsMap
+
+        m = LruMissStatsMap.__new__(LruMissStatsMap)
+        assert m._aggregate_values([10, 20, 30]) == 60
+
+
+class TestQuicStatsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.quic_stats_map import QuicStatsMap
+
+        m = QuicStatsMap.__new__(QuicStatsMap)
+        assert m._value_size == 104
+
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.quic_stats_map import QuicStatsMap
+        from katran.core.types import QuicPacketStats
+
+        m = QuicStatsMap.__new__(QuicStatsMap)
+        val = QuicPacketStats(
+            ch_routed=1, cid_initial=2, cid_routed=5, cid_v0=10, dst_match_in_lru=20
+        )
+        restored = m._deserialize_value(m._serialize_value(val))
+        assert restored.ch_routed == 1
+        assert restored.cid_routed == 5
+        assert restored.dst_match_in_lru == 20
+
+    def test_aggregate(self) -> None:
+        from katran.bpf.maps.quic_stats_map import QuicStatsMap
+        from katran.core.types import QuicPacketStats
+
+        m = QuicStatsMap.__new__(QuicStatsMap)
+        v1 = QuicPacketStats(ch_routed=10, cid_routed=5)
+        v2 = QuicPacketStats(ch_routed=20, cid_routed=15)
+        agg = m._aggregate_values([v1, v2])
+        assert agg.ch_routed == 30
+        assert agg.cid_routed == 20
+
+
+class TestDecapVipStatsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.decap_vip_stats_map import DecapVipStatsMap
+
+        m = DecapVipStatsMap.__new__(DecapVipStatsMap)
+        assert m._value_size == 16
+
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.decap_vip_stats_map import DecapVipStatsMap
+        from katran.core.types import LbStats
+
+        m = DecapVipStatsMap.__new__(DecapVipStatsMap)
+        val = LbStats(v1=100, v2=200)
+        assert m._deserialize_value(m._serialize_value(val)) == val
+
+
+class TestServerIdStatsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.server_id_stats_map import ServerIdStatsMap
+
+        m = ServerIdStatsMap.__new__(ServerIdStatsMap)
+        assert m._value_size == 16
+
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.server_id_stats_map import ServerIdStatsMap
+        from katran.core.types import LbStats
+
+        m = ServerIdStatsMap.__new__(ServerIdStatsMap)
+        val = LbStats(v1=50, v2=75)
+        assert m._deserialize_value(m._serialize_value(val)) == val
