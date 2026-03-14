@@ -8,6 +8,8 @@ addresses with colons.
 
 from __future__ import annotations
 
+import dataclasses
+from ipaddress import ip_address
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -15,14 +17,20 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
 from pydantic import BaseModel, Field
 
-from katran.core.constants import Protocol
+from katran.core.constants import KatranFeature, ModifyAction, Protocol
 from katran.core.exceptions import (
+    DecapError,
+    FeatureNotEnabledError,
+    HealthCheckError,
     KatranError,
+    QuicMappingError,
     RealExistsError,
     ResourceExhaustedError,
+    SrcRoutingError,
     VipExistsError,
 )
 from katran.core.logging import get_logger
+from katran.core.types import QuicReal, VipKey
 from katran.stats.collector import KatranMetricsCollector
 
 log = get_logger(__name__)
@@ -75,6 +83,83 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class SrcRoutingRequest(BaseModel):
+    srcs: list[str]
+    dst: str
+
+
+class AddressRequest(BaseModel):
+    address: str
+
+
+class HcDstRequest(BaseModel):
+    somark: int
+    dst: str
+
+
+class HcKeyRequest(BaseModel):
+    address: str
+    port: int
+    protocol: str
+
+
+class HcMacRequest(BaseModel):
+    mac: str
+
+
+class HcInterfaceRequest(BaseModel):
+    ifindex: int
+
+
+class QuicRealModel(BaseModel):
+    address: str
+    id: int
+
+
+class QuicMappingRequest(BaseModel):
+    action: str
+    mappings: list[QuicRealModel]
+
+
+class QuicInvalidateRequest(BaseModel):
+    server_ids: list[int]
+
+
+class QuicRevalidateRequest(BaseModel):
+    mappings: list[QuicRealModel]
+
+
+class DownRealRequest(BaseModel):
+    vip: VipId
+    real_index: int
+
+
+class SomarkRequest(BaseModel):
+    somark: int
+
+
+class LruSearchRequest(BaseModel):
+    vip: VipId
+    src_ip: str
+    src_port: int
+
+
+class LruListRequest(BaseModel):
+    vip: VipId
+    limit: int = 100
+
+
+class LruPurgeRealRequest(BaseModel):
+    vip: VipId
+    real_index: int
+
+
+class LruDeleteRequest(BaseModel):
+    vip: VipId
+    src_ip: str
+    src_port: int
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -112,6 +197,15 @@ def _lookup_vip(svc: Any, address: str, port: int, protocol: Protocol) -> Any:
     return vip
 
 
+def _make_vip_key(vip_id: VipId) -> VipKey:
+    """Convert a VipId request model into a VipKey."""
+    return VipKey(
+        address=ip_address(vip_id.address),
+        port=vip_id.port,
+        protocol=_parse_protocol(vip_id.protocol),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dependency
 # ---------------------------------------------------------------------------
@@ -129,10 +223,15 @@ def get_service(request: Request) -> Any:
 # Global exception handler
 # ---------------------------------------------------------------------------
 
-_KATRAN_ERROR_STATUS = {
+_KATRAN_ERROR_STATUS: dict[type, int] = {
     VipExistsError: 409,
     RealExistsError: 409,
     ResourceExhaustedError: 507,
+    FeatureNotEnabledError: 400,
+    HealthCheckError: 400,
+    SrcRoutingError: 400,
+    QuicMappingError: 400,
+    DecapError: 400,
 }
 
 
@@ -297,5 +396,327 @@ def create_app(service: Any = None) -> FastAPI:
             req.vip.protocol,
         )
         return {"status": "drained"}
+
+    # --- Source routing endpoints ------------------------------------------
+
+    @app.post("/api/v1/src-routing/add")
+    def add_src_routing(
+        req: SrcRoutingRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, int]:
+        failures = svc.add_src_routing_rules(srcs=req.srcs, dst=req.dst)
+        return {"failures": failures}
+
+    @app.get("/api/v1/src-routing")
+    def get_src_routing(svc: Any = Depends(get_service)) -> dict[str, str]:
+        return svc.get_src_routing_rules()
+
+    @app.post("/api/v1/src-routing/remove")
+    def remove_src_routing(
+        req: SrcRoutingRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.del_src_routing_rules(srcs=req.srcs)
+        return {"status": "removed"}
+
+    @app.post("/api/v1/src-routing/clear")
+    def clear_src_routing(svc: Any = Depends(get_service)) -> dict[str, str]:
+        svc.clear_src_routing_rules()
+        return {"status": "cleared"}
+
+    # --- Decap endpoints --------------------------------------------------
+
+    @app.post("/api/v1/decap/dst/add")
+    def add_decap_dst(
+        req: AddressRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.add_decap_dst(dst=req.address)
+        return {"status": "added"}
+
+    @app.post("/api/v1/decap/dst/remove")
+    def remove_decap_dst(
+        req: AddressRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.del_decap_dst(dst=req.address)
+        return {"status": "removed"}
+
+    @app.get("/api/v1/decap/dst")
+    def get_decap_dsts(svc: Any = Depends(get_service)) -> list[str]:
+        return svc.get_decap_dsts()
+
+    # --- QUIC endpoints ---------------------------------------------------
+
+    @app.post("/api/v1/quic/mapping")
+    def modify_quic_mapping(
+        req: QuicMappingRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, int]:
+        action = ModifyAction(req.action)
+        quic_reals = [QuicReal(address=m.address, id=m.id) for m in req.mappings]
+        failures = svc.modify_quic_mapping(action=action, quic_reals=quic_reals)
+        return {"failures": failures}
+
+    @app.get("/api/v1/quic/mapping")
+    def get_quic_mapping(svc: Any = Depends(get_service)) -> list[dict[str, Any]]:
+        mapping = svc.get_quic_mapping()
+        return [{"address": qr.address, "id": qr.id} for qr in mapping]
+
+    @app.post("/api/v1/quic/invalidate")
+    def invalidate_quic(
+        req: QuicInvalidateRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.invalidate_quic_server_ids(server_ids=req.server_ids)
+        return {"status": "invalidated"}
+
+    @app.post("/api/v1/quic/revalidate")
+    def revalidate_quic(
+        req: QuicRevalidateRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        quic_reals = [QuicReal(address=m.address, id=m.id) for m in req.mappings]
+        svc.revalidate_quic_server_ids(quic_reals=quic_reals)
+        return {"status": "revalidated"}
+
+    # --- Health check endpoints -------------------------------------------
+
+    @app.post("/api/v1/hc/dst/add")
+    def add_hc_dst(
+        req: HcDstRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.add_hc_dst(somark=req.somark, dst=req.dst)
+        return {"status": "added"}
+
+    @app.post("/api/v1/hc/dst/remove")
+    def remove_hc_dst(
+        req: SomarkRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.del_hc_dst(somark=req.somark)
+        return {"status": "removed"}
+
+    @app.get("/api/v1/hc/dst")
+    def get_hc_dsts(svc: Any = Depends(get_service)) -> dict[int, str]:
+        return svc.get_hc_dsts()
+
+    @app.post("/api/v1/hc/key/add")
+    def add_hc_key(
+        req: HcKeyRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, int]:
+        key = VipKey(
+            address=ip_address(req.address),
+            port=req.port,
+            protocol=_parse_protocol(req.protocol),
+        )
+        index = svc.add_hc_key(key=key)
+        return {"index": index}
+
+    @app.post("/api/v1/hc/key/remove")
+    def remove_hc_key(
+        req: HcKeyRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        key = VipKey(
+            address=ip_address(req.address),
+            port=req.port,
+            protocol=_parse_protocol(req.protocol),
+        )
+        svc.del_hc_key(key=key)
+        return {"status": "removed"}
+
+    @app.get("/api/v1/hc/keys")
+    def get_hc_keys(svc: Any = Depends(get_service)) -> list[dict[str, Any]]:
+        keys = svc.get_hc_keys()
+        return [
+            {
+                "address": str(k.address),
+                "port": k.port,
+                "protocol": k.protocol.name.lower(),
+                "index": idx,
+            }
+            for k, idx in keys.items()
+        ]
+
+    @app.post("/api/v1/hc/src-ip")
+    def set_hc_src_ip(
+        req: AddressRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.set_hc_src_ip(address=req.address)
+        return {"status": "set"}
+
+    @app.post("/api/v1/hc/src-mac")
+    def set_hc_src_mac(
+        req: HcMacRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.set_hc_src_mac(mac=req.mac)
+        return {"status": "set"}
+
+    @app.post("/api/v1/hc/dst-mac")
+    def set_hc_dst_mac(
+        req: HcMacRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.set_hc_dst_mac(mac=req.mac)
+        return {"status": "set"}
+
+    @app.post("/api/v1/hc/interface")
+    def set_hc_interface(
+        req: HcInterfaceRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.set_hc_interface(ifindex=req.ifindex)
+        return {"status": "set"}
+
+    @app.get("/api/v1/hc/stats")
+    def get_hc_stats(svc: Any = Depends(get_service)) -> dict[str, int]:
+        stats = svc.get_hc_stats()
+        return dataclasses.asdict(stats)
+
+    @app.get("/api/v1/hc/stats/key")
+    def get_hc_stats_key(
+        address: str = Query(...),
+        port: int = Query(...),
+        protocol: str = Query(...),
+        svc: Any = Depends(get_service),
+    ) -> dict[str, int]:
+        key = VipKey(
+            address=ip_address(address),
+            port=port,
+            protocol=_parse_protocol(protocol),
+        )
+        packets = svc.get_packets_for_hc_key(key=key)
+        return {"packets": packets}
+
+    # --- Stats endpoints --------------------------------------------------
+
+    @app.get("/api/v1/stats/vip")
+    def get_vip_stats(
+        address: str = Query(...),
+        port: int = Query(...),
+        protocol: str = Query(...),
+        svc: Any = Depends(get_service),
+    ) -> dict[str, int]:
+        proto = _parse_protocol(protocol)
+        vip = _lookup_vip(svc, address, port, proto)
+        stats = svc.get_vip_stats(vip_num=vip.vip_num)
+        return {"packets": stats.v1, "bytes": stats.v2}
+
+    @app.get("/api/v1/stats/real")
+    def get_real_stats(
+        index: int = Query(...),
+        svc: Any = Depends(get_service),
+    ) -> dict[str, int]:
+        stats = svc.get_real_stats(real_index=index)
+        return {"packets": stats.v1, "bytes": stats.v2}
+
+    @app.get("/api/v1/stats/global")
+    def get_global_stats(svc: Any = Depends(get_service)) -> dict[str, Any]:
+        return svc.get_all_global_stats()
+
+    @app.get("/api/v1/stats/quic")
+    def get_quic_stats(svc: Any = Depends(get_service)) -> dict[str, int]:
+        stats = svc.get_quic_packet_stats()
+        return dataclasses.asdict(stats)
+
+    @app.get("/api/v1/stats/hc")
+    def get_hc_program_stats(svc: Any = Depends(get_service)) -> dict[str, int]:
+        stats = svc.get_hc_program_stats()
+        return dataclasses.asdict(stats)
+
+    @app.get("/api/v1/stats/per-cpu")
+    def get_per_cpu_stats(svc: Any = Depends(get_service)) -> list[int]:
+        return svc.get_per_core_packets_stats()
+
+    # --- Features endpoint ------------------------------------------------
+
+    @app.get("/api/v1/features")
+    def get_features(svc: Any = Depends(get_service)) -> dict[str, Any]:
+        flags = svc.config.features
+        enabled = [f.name for f in KatranFeature if svc.has_feature(f)]
+        return {"flags": flags, "enabled": enabled}
+
+    # --- Encap endpoints --------------------------------------------------
+
+    @app.post("/api/v1/encap/src-ip")
+    def set_encap_src_ip(
+        req: AddressRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        svc.set_src_ip_for_encap(address=req.address)
+        return {"status": "set"}
+
+    # --- LRU endpoints ----------------------------------------------------
+
+    @app.post("/api/v1/lru/search")
+    def lru_search(
+        req: LruSearchRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, Any]:
+        vip_key = _make_vip_key(req.vip)
+        result = svc.lru_search(vip_key=vip_key, src_ip=req.src_ip, src_port=req.src_port)
+        return {"entries": len(result.entries), "error": result.error}
+
+    @app.post("/api/v1/lru/list")
+    def lru_list(
+        req: LruListRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, Any]:
+        vip_key = _make_vip_key(req.vip)
+        result = svc.lru_list(vip_key=vip_key, limit=req.limit)
+        return {"entries": len(result.entries), "error": result.error}
+
+    @app.post("/api/v1/lru/delete")
+    def lru_delete(
+        req: LruDeleteRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, list[str]]:
+        vip_key = _make_vip_key(req.vip)
+        deleted = svc.lru_delete(vip_key=vip_key, src_ip=req.src_ip, src_port=req.src_port)
+        return {"deleted": deleted}
+
+    @app.post("/api/v1/lru/purge-vip")
+    def lru_purge_vip(
+        req: LruListRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, int]:
+        vip_key = _make_vip_key(req.vip)
+        result = svc.lru_purge_vip(vip_key=vip_key)
+        return {"deleted_count": result.deleted_count}
+
+    @app.post("/api/v1/lru/purge-real")
+    def lru_purge_real(
+        req: LruPurgeRealRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, int]:
+        vip_key = _make_vip_key(req.vip)
+        result = svc.lru_purge_vip_for_real(vip_key=vip_key, real_index=req.real_index)
+        return {"deleted_count": result.deleted_count}
+
+    @app.get("/api/v1/lru/analyze")
+    def lru_analyze(svc: Any = Depends(get_service)) -> dict[str, Any]:
+        result = svc.lru_analyze()
+        return {
+            "total_entries": result.total_entries,
+            "per_vip": {k: dataclasses.asdict(v) for k, v in result.per_vip.items()},
+        }
+
+    # --- Down reals endpoints ---------------------------------------------
+
+    @app.post("/api/v1/down-reals/add")
+    def add_down_real(
+        req: DownRealRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        vip_key = _make_vip_key(req.vip)
+        svc.add_down_real(vip_key=vip_key, real_index=req.real_index)
+        return {"status": "added"}
+
+    @app.post("/api/v1/down-reals/remove")
+    def remove_down_real(
+        req: DownRealRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        vip_key = _make_vip_key(req.vip)
+        svc.remove_down_real(vip_key=vip_key, real_index=req.real_index)
+        return {"status": "removed"}
+
+    @app.post("/api/v1/down-reals/remove-vip")
+    def remove_down_reals_vip(
+        req: VipId, svc: Any = Depends(get_service)
+    ) -> dict[str, str]:
+        vip_key = _make_vip_key(req)
+        svc.remove_down_reals_vip(vip_key=vip_key)
+        return {"status": "removed"}
+
+    @app.post("/api/v1/down-reals/check")
+    def check_down_real(
+        req: DownRealRequest, svc: Any = Depends(get_service)
+    ) -> dict[str, bool]:
+        vip_key = _make_vip_key(req.vip)
+        is_down = svc.check_down_real(vip_key=vip_key, real_index=req.real_index)
+        return {"is_down": is_down}
 
     return app
