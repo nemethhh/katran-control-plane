@@ -1,9 +1,21 @@
-samples
-katran-bpfs
-.venv
-.pytest_cache
-__pycache__
-htmlcov
-.ruff_cache
-.claude
-*/*.egg-info
+# Vendored / external
+samples/
+katran-bpfs/
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+dist/
+*.whl
+build/
+
+# Tools
+.pytest_cache/
+htmlcov/
+.ruff_cache/
+.coverage
+.mypy_cache/
+
+# IDE / local
+.claude/
