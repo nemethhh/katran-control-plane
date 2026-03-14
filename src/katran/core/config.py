@@ -14,7 +14,16 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, field_validator, model_validator
 
-from katran.core.constants import DEFAULT_LRU_SIZE, MAX_REALS, MAX_VIPS, RING_SIZE
+from katran.core.constants import (
+    DEFAULT_LRU_SIZE,
+    MAX_DECAP_DST,
+    MAX_LPM_SRC,
+    MAX_QUIC_REALS,
+    MAX_REALS,
+    MAX_VIPS,
+    RING_SIZE,
+    KatranFeature,
+)
 from katran.core.exceptions import ConfigurationError
 
 # Known primes used for ring sizes (subset for fast validation)
@@ -81,6 +90,9 @@ class MapConfig(BaseModel):
     max_reals: int = MAX_REALS
     lru_size: int = DEFAULT_LRU_SIZE
     ring_size: int = RING_SIZE
+    max_lpm_src: int = MAX_LPM_SRC
+    max_decap_dst: int = MAX_DECAP_DST
+    max_quic_reals: int = MAX_QUIC_REALS
 
     @field_validator("ring_size")
     @classmethod
@@ -133,11 +145,16 @@ _FLAT_KEYS = {
     "max_reals",
     "lru_size",
     "ring_size",
+    "max_lpm_src",
+    "max_decap_dst",
+    "max_quic_reals",
     "grpc_port",
     "rest_port",
     "prometheus_port",
     "log_level",
     "log_format",
+    "features",
+    "tunnel_based_hc",
 }
 
 
@@ -160,6 +177,9 @@ def _is_flat_config(data: dict[str, Any]) -> bool:
         "max_reals",
         "lru_size",
         "ring_size",
+        "max_lpm_src",
+        "max_decap_dst",
+        "max_quic_reals",
         "grpc_port",
         "rest_port",
         "prometheus_port",
@@ -174,7 +194,7 @@ def _is_flat_config(data: dict[str, Any]) -> bool:
 
 def _normalize_flat_config(data: dict[str, Any]) -> dict[str, Any]:
     """Convert flat YAML keys to nested structure."""
-    return {
+    result: dict[str, Any] = {
         "interface": {
             "name": data.get("interface", "eth0"),
             "xdp_mode": data.get("xdp_mode", "native"),
@@ -190,6 +210,9 @@ def _normalize_flat_config(data: dict[str, Any]) -> dict[str, Any]:
             "max_reals": data.get("max_reals", MAX_REALS),
             "lru_size": data.get("lru_size", DEFAULT_LRU_SIZE),
             "ring_size": data.get("ring_size", RING_SIZE),
+            "max_lpm_src": data.get("max_lpm_src", MAX_LPM_SRC),
+            "max_decap_dst": data.get("max_decap_dst", MAX_DECAP_DST),
+            "max_quic_reals": data.get("max_quic_reals", MAX_QUIC_REALS),
         },
         "api": {
             "grpc_port": data.get("grpc_port", 50051),
@@ -201,6 +224,11 @@ def _normalize_flat_config(data: dict[str, Any]) -> dict[str, Any]:
             "format": data.get("log_format", "json"),
         },
     }
+    if "features" in data:
+        result["features"] = data["features"]
+    if "tunnel_based_hc" in data:
+        result["tunnel_based_hc"] = data["tunnel_based_hc"]
+    return result
 
 
 class KatranConfig(BaseModel):
@@ -211,6 +239,18 @@ class KatranConfig(BaseModel):
     maps: MapConfig = MapConfig()
     api: ApiConfig = ApiConfig()
     logging: LogConfig = LogConfig()
+    features: int = 0
+    tunnel_based_hc: bool = True
+
+    @field_validator("features", mode="before")
+    @classmethod
+    def validate_features(cls, v: Any) -> int:
+        if isinstance(v, list):
+            result = KatranFeature(0)
+            for name in v:
+                result |= KatranFeature[name.upper()]
+            return int(result)
+        return int(v)
 
     @model_validator(mode="before")
     @classmethod

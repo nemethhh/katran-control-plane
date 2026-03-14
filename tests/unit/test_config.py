@@ -156,3 +156,43 @@ class TestIsPrime:
     def test_known_composites(self):
         for c in (0, 1, 4, 6, 8, 9, 100, 65536):
             assert not _is_prime(c), f"{c} should not be prime"
+
+
+# ---------------------------------------------------------------------------
+# Feature and map config extensions
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureConfig:
+    def test_features_from_int(self):
+        cfg = KatranConfig.from_dict({"features": 5})
+        assert cfg.features == 5
+
+    def test_features_from_list(self):
+        cfg = KatranConfig.from_dict({"features": ["src_routing", "inline_decap"]})
+        assert cfg.features == 3
+
+    def test_features_default_zero(self):
+        cfg = KatranConfig()
+        assert cfg.features == 0
+
+    def test_tunnel_based_hc_default(self):
+        cfg = KatranConfig()
+        assert cfg.tunnel_based_hc is True
+
+    def test_map_config_new_fields(self):
+        cfg = KatranConfig.from_dict({
+            "maps": {"max_lpm_src": 1000, "max_decap_dst": 10, "max_quic_reals": 100}
+        })
+        assert cfg.maps.max_lpm_src == 1000
+        assert cfg.maps.max_decap_dst == 10
+        assert cfg.maps.max_quic_reals == 100
+
+    def test_map_config_defaults(self):
+        cfg = KatranConfig()
+        assert cfg.maps.max_lpm_src == 3_000_000
+        assert cfg.maps.max_decap_dst == 6
+
+    def test_flat_config_passes_features(self):
+        cfg = KatranConfig.from_dict({"interface": "eth0", "features": 3})
+        assert cfg.features == 3
