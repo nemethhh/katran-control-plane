@@ -45,33 +45,38 @@ Lay shared infrastructure first (types, constants, config, new BPF syscalls, map
 
 ### 3.1 New Constants (`constants.py`)
 
-New `StatsCounterIndex` entries matching `balancer_consts.h`:
+The existing `StatsCounterIndex` in `constants.py` already has indices 0-6 and 8-19. The only missing entry is:
 
 ```python
-class StatsCounterIndex(IntEnum):
-    # Existing
-    LRU_CNTRS = 0
-    LRU_MISS_CNTR = 1
-    NEW_CONN_RATE_CNTR = 2
-    # New
-    FALLBACK_LRU_CNTR = 3
-    ICMP_TOOBIG_CNTRS = 4
-    LPM_SRC_CNTRS = 5
-    REMOTE_ENCAP_CNTRS = 6
-    ENCAP_FAIL_CNTR = 7
-    GLOBAL_LRU_CNTR = 8
-    CH_DROP_STATS = 9
-    DECAP_CNTR = 10
-    QUIC_ICMP_STATS = 11
-    ICMP_PTB_V6_STATS = 12
-    ICMP_PTB_V4_STATS = 13
-    XPOP_DECAP_SUCCESSFUL = 14
-    UDP_FLOW_MIGRATION_STATS = 15
-    XDP_TOTAL_CNTR = 16
-    XDP_TX_CNTR = 17
-    XDP_DROP_CNTR = 18
-    XDP_PASS_CNTR = 19
+ENCAP_FAIL_CNTR = 7  # Encapsulation failure counters
 ```
+
+This fills the gap between `REMOTE_ENCAP_CNTRS = 6` and `GLOBAL_LRU_CNTR = 8`.
+
+**Stats counter to getter method mapping** (for implementation clarity):
+
+| StatsCounterIndex | StatsManager method | Reference C++ |
+|---|---|---|
+| LRU_CNTRS (0) | get_lru_stats() | getLruStats() |
+| LRU_MISS_CNTR (1) | get_lru_miss_stats() | getLruMissStats() |
+| NEW_CONN_RATE_CNTR (2) | get_new_conn_rate_stats() | isUnderFlood() |
+| FALLBACK_LRU_CNTR (3) | get_lru_fallback_stats() | getLruFallbackStats() |
+| ICMP_TOOBIG_CNTRS (4) | get_icmp_toobig_stats() | getIcmpTooBigStats() |
+| LPM_SRC_CNTRS (5) | get_src_routing_stats() | getSrcRoutingStats() |
+| REMOTE_ENCAP_CNTRS (6) | get_inline_decap_stats() | getInlineDecapStats() |
+| ENCAP_FAIL_CNTR (7) | get_encap_fail_stats() | getEncapFailStats() |
+| GLOBAL_LRU_CNTR (8) | get_global_lru_stats() | getGlobalLruStats() |
+| CH_DROP_STATS (9) | get_ch_drop_stats() | getChDropStats() |
+| DECAP_CNTR (10) | get_decap_stats() | getDecapStats() |
+| QUIC_ICMP_STATS (11) | get_quic_icmp_stats() | getQuicIcmpStats() |
+| ICMP_PTB_V6_STATS (12) | get_icmp_ptb_v6_stats() | getIcmpPtbV6Stats() |
+| ICMP_PTB_V4_STATS (13) | get_icmp_ptb_v4_stats() | getIcmpPtbV4Stats() |
+| XPOP_DECAP_SUCCESSFUL (14) | get_xpop_decap_stats() | getXPopDecapSuccessfulStats() |
+| UDP_FLOW_MIGRATION_STATS (15) | get_udp_flow_migration_stats() | getUdpFlowMigrationStats() |
+| XDP_TOTAL_CNTR (16) | get_xdp_total_stats() | getXdpTotalStats() |
+| XDP_TX_CNTR (17) | get_xdp_tx_stats() | getXdpTxStats() |
+| XDP_DROP_CNTR (18) | get_xdp_drop_stats() | getXdpDropStats() |
+| XDP_PASS_CNTR (19) | get_xdp_pass_stats() | getXdpPassStats() |
 
 New `KatranFeature` flag enum:
 
@@ -94,6 +99,11 @@ HC_MAIN_INTF_POSITION = 3
 HC_SRC_MAC_POS = 0
 HC_DST_MAC_POS = 1
 HC_STATS_SIZE = 1
+```
+
+General encap source IP position constants (used by both balancer and HC subsystems):
+
+```python
 V4_SRC_INDEX = 0
 V6_SRC_INDEX = 1
 ```
@@ -127,23 +137,28 @@ class V6LpmKey:
     prefixlen: int
     addr: str  # IPv6 address
 
-@dataclass(frozen=True)
-class HcKey:
-    address: str
-    port: int
-    proto: int
+# NOTE: HC keys use the existing VipKey type. The BPF hc_key struct has the
+# same layout as vip_definition (16-byte address + 2-byte port + 1-byte proto
+# + 1-byte padding = 20 bytes). The reference C++ uses VipKey for HC key
+# operations (addHcKey/delHcKey). We reuse VipKey for the same reason.
 
 @dataclass
 class HcMac:
     mac: bytes  # 6 bytes
 
 @dataclass
-class HcStats:
-    pckts_processed: int = 0
-    pckts_dropped: int = 0
-    pckts_skipped: int = 0
-    pckts_too_big: int = 0
-    pckts_dst_matched: int = 0
+class HcRealDefinition:
+    """Value type for hc_reals_map. Stores the actual backend address and flags.
+
+    BPF layout: 16-byte address union + 1-byte flags + 3-byte padding = 20 bytes.
+    This is the same layout as RealDefinition.
+
+    NOTE: The existing HcRealsMap incorrectly stores u32 real_index values.
+    It must be rewritten to store HcRealDefinition (hc_real_definition struct)
+    matching the BPF map definition in healthchecking_maps.h.
+    """
+    address: str  # IPv4 or IPv6
+    flags: int = 0  # V6DADDR = 1 << 0
 
 @dataclass
 class QuicReal:
@@ -152,9 +167,11 @@ class QuicReal:
 
 @dataclass
 class QuicPacketStats:
+    """Per-CPU aggregated QUIC stats. Field order MUST match BPF lb_quic_packets_stats."""
     ch_routed: int = 0
     cid_initial: int = 0
     cid_invalid_server_id: int = 0
+    cid_invalid_server_id_sample: int = 0  # sample of invalid server IDs
     cid_routed: int = 0
     cid_unknown_real_dropped: int = 0
     cid_v0: int = 0
@@ -167,6 +184,12 @@ class QuicPacketStats:
 
 @dataclass
 class HealthCheckProgStats:
+    """HC program statistics. Used as both the BPF-level type (hc_stats struct
+    deserialization in hc_stats_map wrapper) and the API response type.
+
+    BPF field names use pckts_ prefix; Python uses packets_ for readability.
+    The map wrapper handles the field name translation during deserialization.
+    """
     packets_processed: int = 0
     packets_dropped: int = 0
     packets_skipped: int = 0
@@ -210,24 +233,45 @@ class PurgeResponse:
 
 ### 3.3 Config Extensions (`config.py`)
 
-```python
-@dataclass
-class MapConfig:
-    # Existing
-    max_vips: int = 512
-    max_reals: int = 4096
-    lru_size: int = 8_000_000
-    ring_size: int = 65537
-    # New
-    max_lpm_src: int = 3_000_000
-    max_decap_dst: int = 6
-    max_quic_reals: int = 0x00FFFFFE
+The existing config uses **Pydantic BaseModel** (not dataclasses). New fields follow the same pattern:
 
-@dataclass
-class KatranConfig:
+```python
+class MapConfig(BaseModel):
     # Existing fields...
-    features: KatranFeature = KatranFeature(0)
+    # New
+    max_lpm_src: int = MAX_LPM_SRC       # 3,000,000
+    max_decap_dst: int = MAX_DECAP_DST    # 6
+    max_quic_reals: int = MAX_QUIC_REALS  # 0x00FFFFFE
+
+class KatranConfig(BaseModel):
+    # Existing fields...
+    # New - KatranFeature IntFlag, serialized as int in YAML
+    features: int = 0  # KatranFeature flags, validated in model_validator
+
+    @field_validator("features", mode="before")
+    @classmethod
+    def validate_features(cls, v: Any) -> int:
+        """Accept int, list of feature names, or KatranFeature."""
+        if isinstance(v, list):
+            result = KatranFeature(0)
+            for name in v:
+                result |= KatranFeature[name.upper()]
+            return int(result)
+        return int(v)
 ```
+
+YAML config example:
+```yaml
+maps:
+  max_lpm_src: 3000000
+  max_decap_dst: 6
+features:
+  - src_routing
+  - direct_healthchecking
+  - inline_decap
+```
+
+The `_normalize_flat_config` function must also be updated to pass through `features` and new map fields.
 
 ### 3.4 New Exceptions (`exceptions.py`)
 
@@ -243,14 +287,58 @@ class DecapError(KatranError): ...
 
 ### 3.5 New BPF Syscalls (`map_manager.py`)
 
-For HASH_OF_MAPS support (down real tracking):
+For HASH_OF_MAPS support (down real tracking). The existing `BpfCmd` enum already has `MAP_CREATE = 0`. Add:
 
-- `bpf_map_get_fd_by_id(map_id) -> fd` — get inner map FD from ID returned by outer map lookup
+```python
+class BpfCmd(IntEnum):
+    # Existing...
+    MAP_GET_FD_BY_ID = 14  # NEW: get map FD from kernel map ID
+```
+
+New ctypes structures needed:
+
+```python
+class BpfAttrMapCreate(ctypes.Structure):
+    """Attribute for BPF_MAP_CREATE syscall."""
+    _fields_ = [
+        ("map_type", ctypes.c_uint32),
+        ("key_size", ctypes.c_uint32),
+        ("value_size", ctypes.c_uint32),
+        ("max_entries", ctypes.c_uint32),
+        ("map_flags", ctypes.c_uint32),
+    ]
+
+class BpfAttrGetId(ctypes.Structure):
+    """Attribute for BPF_MAP_GET_FD_BY_ID syscall."""
+    _fields_ = [
+        ("map_id", ctypes.c_uint32),
+    ]
+```
+
+New module-level functions:
+
 - `bpf_map_create(map_type, key_size, value_size, max_entries, flags) -> fd` — create inner maps dynamically
+- `bpf_map_get_fd_by_id(map_id) -> fd` — convert kernel map ID (from outer map lookup) to usable FD. Requires `CAP_SYS_ADMIN` or `CAP_BPF`.
 
 ### 3.6 RealManager Public Ref Counting
 
-Expose `increase_ref_count(address) -> int` and `decrease_ref_count(address) -> None` as public methods (currently private `_increase_ref_count`/`_decrease_ref_count`). Called by SrcRoutingManager and QuicManager for shared real reference counting.
+Expose reference counting as public methods (currently private `_increase_ref_count`/`_decrease_ref_count`). Called by SrcRoutingManager and QuicManager for shared real reference counting.
+
+```python
+def increase_ref_count(self, address: str) -> int:
+    """Increment ref count for a real, allocating if new. Returns real index."""
+    ...
+
+def decrease_ref_count(self, address: str) -> None:
+    """Decrement ref count for a real, freeing if count reaches 0."""
+    ...
+
+def get_index_for_real(self, address: str) -> int | None:
+    """Get the current BPF array index for a real address, or None if not allocated."""
+    ...
+```
+
+These accept string addresses (parsing internally), matching how the reference's `increaseRefCountForReal` / `decreaseRefCountForReal` work. The `get_index_for_real` method is needed by `QuicManager.revalidate_server_ids()`.
 
 ## 4. New BPF Map Wrappers
 
@@ -267,14 +355,24 @@ All in `src/katran/bpf/maps/`, each following existing `BpfMap[K, V]` / `PerCpuB
 | quic_stats_map | quic_stats_map.py | PerCpuBpfMap | c_uint32 (0) | QuicPacketStats | PERCPU_ARRAY |
 | decap_vip_stats | decap_vip_stats_map.py | PerCpuBpfMap | c_uint32 (VIP index) | LbStats | PERCPU_ARRAY |
 | server_id_stats | server_id_stats_map.py | PerCpuBpfMap | c_uint32 (VIP index) | LbStats | PERCPU_ARRAY |
-| hc_key_map | hc_key_map.py | BpfMap | HcKey | c_uint32 (HC key index) | HASH |
+| hc_key_map | hc_key_map.py | BpfMap | VipKey (same BPF layout as hc_key) | c_uint32 (HC key index) | HASH |
 | hc_ctrl_map | hc_ctrl_map.py | BpfMap | c_uint32 | c_uint32 | ARRAY |
 | hc_pckt_srcs_map | hc_pckt_srcs_map.py | BpfMap | c_uint32 (0=v4, 1=v6) | RealDefinition | ARRAY |
 | hc_pckt_macs | hc_pckt_macs_map.py | BpfMap | c_uint32 (0=src, 1=dst) | HcMac | ARRAY |
 | hc_stats_map | hc_stats_map.py | PerCpuBpfMap | c_uint32 (0) | HcStats | PERCPU_ARRAY |
 | per_hckey_stats | per_hckey_stats_map.py | PerCpuBpfMap | c_uint32 (HC key idx) | c_uint64 | PERCPU_ARRAY |
 | pckt_srcs | pckt_srcs_map.py | BpfMap | c_uint32 (0=v4, 1=v6) | RealDefinition | ARRAY |
-| vip_to_down_reals | down_reals_map.py | BpfMap (special) | VipKey | inner map ID | HASH_OF_MAPS |
+| vip_to_down_reals | down_reals_map.py | BpfMap (special) | VipKey | inner map ID (u32) | HASH_OF_MAPS |
+
+**Important map wrapper notes:**
+
+- **LPM_TRIE maps** (`lpm_src_v4`, `lpm_src_v6`): `get_next_key` is not supported by the kernel for LPM tries (returns EOPNOTSUPP). Iteration via `items()` / `keys()` will fail. The `SrcRoutingManager.get_rules()` method returns from its in-memory `_lpm_mapping` dict, not from BPF map iteration.
+
+- **hc_reals_map rewrite**: The existing `HcRealsMap` stores `u32 -> u32` (SO_MARK -> real_index). The BPF `hc_reals_map` in `healthchecking_maps.h` stores `u32 -> hc_real_definition` (20 bytes: 16-byte address + 1-byte flags + 3 padding). **The existing HcRealsMap must be rewritten** to use `HcRealDefinition` as its value type instead of `int`. This matches the reference implementation where `addHealthcheckerDst(somark, dst)` writes the actual IP address to the map. Add `hc_reals_map.py` to the Modified Files list.
+
+- **decap_dst key format**: The key is a 16-byte `address` struct (same as `balancer_structs.h`). IPv4 addresses go in the first 4 bytes with 12 zero-padding bytes, matching the existing codebase convention for all address types.
+
+- **HASH_OF_MAPS workflow** (vip_to_down_reals): See section 10 for detailed inner map lifecycle.
 
 ## 5. Health Check Manager
 
@@ -288,7 +386,7 @@ Coordinates all HC maps. Thread-safe via RLock.
 class HealthCheckManager:
     def __init__(
         self,
-        hc_reals_map: HcRealsMap,
+        hc_reals_map: HcRealsMap,  # rewritten to store HcRealDefinition
         hc_key_map: HcKeyMap,
         hc_ctrl_map: HcCtrlMap,
         hc_pckt_srcs_map: HcPcktSrcsMap,
@@ -298,15 +396,15 @@ class HealthCheckManager:
         max_vips: int = MAX_VIPS,
     ): ...
 
-    # Destination management
+    # Destination management (writes IP address to hc_reals_map, not index)
     def add_hc_dst(self, somark: int, dst: str) -> None: ...
     def del_hc_dst(self, somark: int) -> None: ...
     def get_hc_dsts(self) -> dict[int, str]: ...
 
-    # HC key management
-    def add_hc_key(self, key: HcKey) -> int: ...  # returns index
-    def del_hc_key(self, key: HcKey) -> None: ...
-    def get_hc_keys(self) -> dict[HcKey, int]: ...
+    # HC key management (uses VipKey, matching reference's use of VipKey)
+    def add_hc_key(self, key: VipKey) -> int: ...  # returns index
+    def del_hc_key(self, key: VipKey) -> None: ...
+    def get_hc_keys(self) -> dict[VipKey, int]: ...
 
     # Source IP/MAC configuration
     def set_hc_src_ip(self, address: str) -> None: ...
@@ -318,14 +416,14 @@ class HealthCheckManager:
 
     # Statistics
     def get_stats(self) -> HealthCheckProgStats: ...
-    def get_packets_for_hc_key(self, key: HcKey) -> int: ...
+    def get_packets_for_hc_key(self, key: VipKey) -> int: ...
 ```
 
 ### Internal State
 
-- `_hc_key_to_index: dict[HcKey, int]` — mirrors hc_key_map
+- `_hc_key_to_index: dict[VipKey, int]` — mirrors hc_key_map
 - `_index_allocator: IndexAllocator` — for HC key indices (0 to max_vips-1)
-- `_somark_to_dst: dict[int, str]` — mirrors hc_reals_map
+- `_somark_to_dst: dict[int, str]` — mirrors hc_reals_map (somark -> IP address string)
 
 ### Reference Mapping
 
@@ -343,7 +441,17 @@ class HealthCheckManager:
 
 **File:** `src/katran/lb/lru_manager.py`
 
-Advanced LRU operations on top of existing LruMap. Handles both single LRU and per-CPU LRU map scenarios.
+Advanced LRU operations matching the reference implementation, which iterates **all per-CPU LRU maps** plus the fallback cache.
+
+### Per-CPU LRU Access Model
+
+The reference uses `lru_mapping` (BPF_MAP_TYPE_ARRAY_OF_MAPS) where each entry is a per-CPU LRU hash map. Operations iterate all inner maps.
+
+The LruManager accepts:
+- `fallback_lru: LruMap` — the existing `fallback_cache` (single LRU hash, always present)
+- `per_cpu_lru_fds: list[int] | None` — FDs for per-CPU inner LRU maps (obtained from `lru_mapping` array-of-maps via `bpf_map_lookup_elem` at each CPU index, then `bpf_map_get_fd_by_id`). If None, only the fallback is used.
+
+All search/list/delete/purge/analyze operations iterate all available LRU maps (per-CPU + fallback), matching the reference behavior.
 
 ### Interface
 
@@ -351,7 +459,8 @@ Advanced LRU operations on top of existing LruMap. Handles both single LRU and p
 class LruManager:
     def __init__(
         self,
-        lru_map: LruMap,
+        fallback_lru: LruMap,
+        per_cpu_lru_fds: list[int] | None = None,  # from lru_mapping array-of-maps
         lru_miss_stats_map: LruMissStatsMap | None = None,
         vip_manager: VipManager | None = None,
         real_manager: RealManager | None = None,
@@ -365,6 +474,21 @@ class LruManager:
     def analyze(self) -> LruAnalysis: ...
     def get_vip_lru_miss_stats(self, vip: VipKey) -> dict[str, int]: ...
 ```
+
+### Per-CPU FD Acquisition
+
+During `KatranService.start()`, if `lru_mapping` is pinned:
+
+```python
+per_cpu_fds = []
+for cpu in range(num_cpus):
+    inner_id = lru_mapping_map.lookup(cpu)  # returns inner map ID
+    if inner_id is not None:
+        fd = bpf_map_get_fd_by_id(inner_id)
+        per_cpu_fds.append(fd)
+```
+
+If `lru_mapping` is not pinned (not all deployments use per-CPU LRU), the LruManager operates on the fallback cache only. This gracefully degrades while still providing all operations.
 
 ### Reference Mapping
 
@@ -409,9 +533,10 @@ class SrcRoutingManager:
 
 ### Key Behavior
 
-- add_rules: validate dst, validate each src as CIDR, check capacity, call real_manager.increase_ref_count(dst), write to lpm_src_v4/v6 map
-- del_rules: lookup in _lpm_mapping, call real_manager.decrease_ref_count(), delete from BPF map
-- clear_all: iterate all entries, decrease ref counts, delete from BPF maps, clear mapping
+- **add_rules**: validate dst, validate each src as CIDR, check capacity, call real_manager.increase_ref_count(dst), write to lpm_src_v4/v6 map. Returns count of sources that failed **validation** (invalid CIDR format, wrong address family). BPF map write failures raise exceptions rather than incrementing the count. Returns 0 on full success.
+- **del_rules**: lookup in _lpm_mapping, call real_manager.decrease_ref_count(), delete from BPF map
+- **clear_all**: iterate all entries, decrease ref counts, delete from BPF maps, clear mapping
+- **get_rules**: returns from in-memory `_lpm_mapping`, NOT from BPF map iteration (LPM trie maps don't support get_next_key)
 
 ## 8. Inline Decapsulation Manager
 
@@ -487,17 +612,48 @@ class DownRealManager:
     def remove_real(self, vip: VipKey, real_index: int) -> None: ...
 ```
 
-### Key Behavior
+### HASH_OF_MAPS Workflow
 
-- add_down_real: validate VIP, look up inner map (create if missing via bpf_map_create), write real_index to inner map
-- check_real: validate VIP, look up inner map, look up real_index in inner map
-- remove_vip: delete VIP key from outer map
-- remove_real: look up inner map, delete real_index from inner map
+The outer map stores VipKey -> inner_map_id. Inner maps are `BPF_MAP_TYPE_HASH` with key=`c_uint32` (real_index) and value=`c_uint8` (dummy marker, presence = down).
 
-### BPF Syscall Requirements
+**add_down_real(vip, real_index):**
 
-- `bpf_map_get_fd_by_id(map_id) -> fd` — get inner map FD from ID
-- `bpf_map_create(map_type, key_size, value_size, max_entries, flags) -> fd` — create inner maps
+1. Validate VIP exists via vip_manager
+2. Convert VipKey to 20-byte BPF key (vip_definition layout)
+3. Lookup outer map: `bpf_map_lookup_elem(outer_fd, &vip_key)` -> inner_map_id (u32)
+4. If ENOENT (no inner map for this VIP):
+   a. Create new inner map: `bpf_map_create(BPF_MAP_TYPE_HASH, key_size=4, value_size=1, max_entries=MAX_REALS, flags=BPF_F_NO_PREALLOC)` -> new_inner_fd
+   b. Update outer map: `bpf_map_update_elem(outer_fd, &vip_key, &new_inner_fd)` (kernel takes ownership of inner map reference)
+   c. `close(new_inner_fd)` (kernel holds its own reference now)
+   d. Re-lookup outer map to get the kernel-assigned inner_map_id
+5. Get inner map FD: `bpf_map_get_fd_by_id(inner_map_id)` -> inner_fd
+6. Write to inner map: `bpf_map_update_elem(inner_fd, &real_index, &dummy_u8_1)`
+7. `close(inner_fd)` (must always close to avoid FD leak)
+
+**check_real(vip, real_index):**
+
+1. Validate VIP exists
+2. Lookup outer map -> inner_map_id. Return False if ENOENT
+3. `bpf_map_get_fd_by_id(inner_map_id)` -> inner_fd
+4. `bpf_map_lookup_elem(inner_fd, &real_index)` -> found or ENOENT
+5. `close(inner_fd)`
+6. Return True if found, False if ENOENT
+
+**remove_vip(vip):**
+
+1. Validate VIP exists
+2. `bpf_map_delete_elem(outer_fd, &vip_key)` — kernel cleans up inner map when last reference drops
+3. Return silently on ENOENT
+
+**remove_real(vip, real_index):**
+
+1. Validate VIP exists
+2. Lookup outer map -> inner_map_id. Return silently if ENOENT
+3. `bpf_map_get_fd_by_id(inner_map_id)` -> inner_fd
+4. `bpf_map_delete_elem(inner_fd, &real_index)` — return silently on ENOENT
+5. `close(inner_fd)`
+
+**FD Lifecycle:** Inner map FDs obtained via `bpf_map_get_fd_by_id` MUST be closed after use. Use Python context managers or try/finally to prevent FD leaks. The `VipToDownRealsMap` wrapper should provide a `get_inner_map(vip_key)` context manager that auto-closes.
 
 ## 11. Enhanced Statistics
 
@@ -531,9 +687,10 @@ class StatsManager:
     def get_real_stats(self, real_index: int) -> LbStats: ...
     def get_reals_stats(self, indices: list[int]) -> dict[int, LbStats]: ...
 
-    # Global stats (22 methods, each reading from stats_map at specific offset)
+    # Global stats (each reading from stats_map at max_vips + StatsCounterIndex)
     def get_lru_stats(self) -> LbStats: ...
     def get_lru_miss_stats(self) -> LbStats: ...
+    def get_new_conn_rate_stats(self) -> LbStats: ...
     def get_lru_fallback_stats(self) -> LbStats: ...
     def get_global_lru_stats(self) -> LbStats: ...
     def get_icmp_toobig_stats(self) -> LbStats: ...
@@ -601,8 +758,10 @@ No dedicated manager. Methods on KatranService:
 ```python
 def set_src_ip_for_encap(self, address: str) -> None:
     """Write source IP to pckt_srcs and hc_pckt_srcs_map. Auto-detects v4/v6."""
-    index = V4_SRC_INDEX if is_ipv4(address) else V6_SRC_INDEX
-    real_def = RealDefinition.from_address(address)
+    from ipaddress import ip_address
+    addr = ip_address(address)
+    index = V4_SRC_INDEX if addr.version == 4 else V6_SRC_INDEX
+    real_def = RealDefinition(address=addr)
     self._pckt_srcs_map.set(index, real_def)
     if self._hc_pckt_srcs_map is not None:
         self._hc_pckt_srcs_map.set(index, real_def)
@@ -666,6 +825,9 @@ def _initialize_managers(self) -> None:
         self._src_routing_manager = SrcRoutingManager(...)
     if KatranFeature.INLINE_DECAP in features:
         self._decap_manager = DecapManager(...)
+    # Map-presence-gated (not feature-flag-gated).
+    # These maps are always compiled into the BPF program (not conditional),
+    # so we try to open them and instantiate managers if they exist.
     if self._server_id_map is not None:
         self._quic_manager = QuicManager(...)
     if self._down_reals_map is not None:
@@ -748,12 +910,12 @@ POST   /api/v1/encap/src-ip
 
 ### Statistics
 ```
-GET    /api/v1/stats/vip
-GET    /api/v1/stats/real
-GET    /api/v1/stats/global
-GET    /api/v1/stats/quic
-GET    /api/v1/stats/hc
-GET    /api/v1/stats/per-cpu
+GET    /api/v1/stats/vip?address=...&port=...&protocol=...   -> per-VIP stats
+GET    /api/v1/stats/real?index=...                           -> per-real stats
+GET    /api/v1/stats/global                                   -> all global stats as JSON object
+GET    /api/v1/stats/quic                                     -> QUIC packet stats
+GET    /api/v1/stats/hc                                       -> HC program stats
+GET    /api/v1/stats/per-cpu                                  -> per-CPU packet breakdown
 ```
 
 ### Features
@@ -798,7 +960,7 @@ DecapError             -> 400
 
 ## 17. File Summary
 
-### New Files (27)
+### New Files (33)
 
 ```
 src/katran/bpf/maps/
@@ -821,16 +983,17 @@ tests/unit/
     test_feature_flags.py, test_rest_api_new.py
 ```
 
-### Modified Files (8)
+### Modified Files (10)
 
 ```
-src/katran/core/types.py
-src/katran/core/constants.py
-src/katran/core/config.py
-src/katran/core/exceptions.py
-src/katran/bpf/map_manager.py
-src/katran/lb/real_manager.py
-src/katran/service.py
-src/katran/api/rest/app.py
-src/katran/stats/collector.py
+src/katran/core/types.py          # New types (LPM keys, HcRealDefinition, QuicReal, etc.)
+src/katran/core/constants.py      # ENCAP_FAIL_CNTR, KatranFeature, HC constants, ModifyAction
+src/katran/core/config.py         # features field, MapConfig extensions, flat config normalization
+src/katran/core/exceptions.py     # FeatureNotEnabledError, HealthCheckError, etc.
+src/katran/bpf/map_manager.py     # bpf_map_get_fd_by_id, bpf_map_create, BpfCmd.MAP_GET_FD_BY_ID
+src/katran/bpf/maps/hc_reals_map.py  # REWRITE: value type u32 -> HcRealDefinition (20 bytes)
+src/katran/lb/real_manager.py     # Public increase/decrease_ref_count, get_index_for_real
+src/katran/service.py             # Feature-gated maps, new managers, delegation methods
+src/katran/api/rest/app.py        # All new REST endpoints
+src/katran/stats/collector.py     # Extended Prometheus metrics
 ```
