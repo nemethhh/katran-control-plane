@@ -2,7 +2,8 @@
 
 .PHONY: all install dev test unit-test e2e-test integration-test lint format clean \
         docker-build docker-test docker-debug docker-stop docker-clean \
-        e2e-multi e2e-multi-debug e2e-multi-shell e2e-multi-stop e2e-multi-clean help
+        e2e-multi e2e-multi-debug e2e-multi-shell e2e-multi-stop e2e-multi-clean \
+        ci-local ci-local-lint ci-local-unit ci-local-integration ci-local-e2e help
 
 VENV := .venv/bin
 PYTHON := $(VENV)/python3
@@ -127,6 +128,25 @@ e2e-multi-stop:
 e2e-multi-clean:
 	$(E2E_COMPOSE) down --rmi local -v
 
+# ─── Local CI (via act) ───────────────────────────────────────────────────
+
+# Run full CI locally via act (requires: https://github.com/nektos/act)
+ci-local:
+	act push --privileged
+
+# Run individual CI jobs locally
+ci-local-lint:
+	act push --privileged -j lint
+
+ci-local-unit:
+	act push --privileged -j unit-test
+
+ci-local-integration:
+	act push --privileged -j integration-test
+
+ci-local-e2e:
+	act push --privileged -j e2e-test
+
 # ─── Help ────────────────────────────────────────────────────────────────────
 
 help:
@@ -164,3 +184,10 @@ help:
 	@echo "  e2e-multi-shell      Shell into test-client container"
 	@echo "  e2e-multi-stop       Stop E2E containers"
 	@echo "  e2e-multi-clean      Clean E2E Docker resources"
+	@echo ""
+	@echo "Local CI (requires act - https://github.com/nektos/act):"
+	@echo "  ci-local             Run full CI locally"
+	@echo "  ci-local-lint        Run lint job locally"
+	@echo "  ci-local-unit        Run unit tests locally"
+	@echo "  ci-local-integration Run integration tests locally"
+	@echo "  ci-local-e2e         Run E2E tests locally"
