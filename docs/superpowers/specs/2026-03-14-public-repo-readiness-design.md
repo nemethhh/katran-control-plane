@@ -5,7 +5,7 @@
 
 ## Goal
 
-Prepare the katran-control-plane project for public release on GitHub. Add CI/CD via GitHub Actions, release automation via git tags, a runtime Docker image published to GHCR, and essential open-source scaffolding.
+Prepare the katran-control-plane project for public release on GitHub. Add CI/CD via GitHub Actions, release automation via git tags, a runtime Docker image published to GHCR, local CI execution via `act`, and essential open-source scaffolding.
 
 ## Deliverables
 
@@ -14,11 +14,15 @@ Prepare the katran-control-plane project for public release on GitHub. Add CI/CD
 | `.github/workflows/ci.yml` | Create | Lint, unit test, integration test, e2e test |
 | `.github/workflows/release.yml` | Create | Build, GitHub Release, GHCR Docker push |
 | `Dockerfile` | Create | Runtime-only container image |
+| `.dockerignore` | Create | Keep Docker build context small |
+| `.actrc` | Create | Default flags for local `act` execution |
 | `LICENSE` | Create | Apache-2.0 full text |
-| `.gitignore` | Edit | Add `samples/`, `dist/`, build artifacts |
+| `.gitignore` | Edit | Add `dist/`, `*.whl`, clean up existing entries |
+| `Makefile` | Edit | Add `ci-local` target for `act` |
 | `samples/` | Delete | Remove vendored third-party sources |
+| `katran-bpfs/` | Untrack | Remove from git (already in `.gitignore`); BPF programs now come from builder releases |
 
-No changes to existing source code, tests, compose files, or Makefile.
+No changes to existing source code or test compose files.
 
 ---
 
@@ -33,6 +37,30 @@ on:
   pull_request:
     branches: [main]
 ```
+
+### Workflow-level input
+
+```yaml
+env:
+  KATRAN_BPF_VERSION: "v2026.03.14-4065efa8"
+  KATRAN_BPF_REPO: "nemethhh/katran-bpf-builder"
+  KATRAN_BPF_VARIANT: "decap-ipip"
+```
+
+The BPF version is pinned in the workflow file. To update, change `KATRAN_BPF_VERSION` and push. This value is the release tag from `nemethhh/katran-bpf-builder`.
+
+### Reusable step: Download BPF programs
+
+Used by `integration-test` and `e2e-test` jobs before `docker compose build`:
+
+```
+gh release download $KATRAN_BPF_VERSION --repo $KATRAN_BPF_REPO --pattern '*.zip' -D /tmp/katran-bpf
+unzip /tmp/katran-bpf/*.zip -d /tmp/katran-bpf-extracted
+mkdir -p katran-bpfs
+cp /tmp/katran-bpf-extracted/$KATRAN_BPF_VARIANT/* katran-bpfs/
+```
+
+This populates `katran-bpfs/` in the workspace before Docker builds, so existing `COPY katran-bpfs/ ./katran-bpfs/` lines in Dockerfiles work unchanged.
 
 ### Jobs
 
@@ -63,10 +91,10 @@ All four jobs run in parallel.
 - **Runner:** `ubuntu-24.04`
 - **Steps:**
   1. `actions/checkout@v4`
-  2. `docker compose -f docker-compose.test.yml up --build -d`
-  3. Run integration tests inside the container:
-     `docker exec katran-target bash -c "cd /app && .venv/bin/python3 -m pytest tests/integration/ -v"`
-  4. `docker compose -f docker-compose.test.yml down -v` (always, even on failure)
+  2. Download BPF programs (reusable step above)
+  3. `make integration-test`
+
+The Makefile's `integration-test` target invokes `tests/integration/run-tests.sh`, which handles the full lifecycle: `docker compose up`, XDP program loading via `xdp-loader`, BPF map pinning via `bpftool`, running pytest, and teardown. The script already handles cleanup on failure.
 
 The compose file uses `privileged: true` and `cap_add: [NET_ADMIN, SYS_ADMIN, BPF]`. GitHub-hosted runners (kernel 6.14) support this. The container mounts `/sys/kernel/btf`, `/lib/modules`, and `/sys/fs/bpf` from the host.
 
@@ -75,13 +103,10 @@ The compose file uses `privileged: true` and `cap_add: [NET_ADMIN, SYS_ADMIN, BP
 - **Runner:** `ubuntu-24.04`
 - **Steps:**
   1. `actions/checkout@v4`
-  2. `docker compose -f docker-compose.e2e.yml up -d --build`
-  3. Wait for healthchecks:
-     `docker compose -f docker-compose.e2e.yml exec test-client bash -c "until curl -sf http://katran-lb:8080/health; do sleep 2; done"`
-  4. `docker exec katran-e2e-client .venv/bin/python3 -m pytest tests/e2e/ -v`
-  5. `docker compose -f docker-compose.e2e.yml down -v` (always)
+  2. Download BPF programs (reusable step above)
+  3. `make e2e-multi`
 
-The e2e compose stands up 4 containers (lb, backend-1, backend-2, test-client) with a custom bridge network (IPv4 + IPv6). The lb container loads XDP and serves the API; the test-client runs pytest against the live system.
+The Makefile's `e2e-multi` target invokes `tests/e2e/run-e2e.sh`, which handles container orchestration, healthcheck waiting, pytest execution, and teardown. The `docker-compose.e2e.yml` already has `depends_on: condition: service_healthy` for proper startup ordering. The lb-entrypoint script handles XDP loading and map pinning.
 
 ---
 
@@ -105,7 +130,7 @@ permissions:
 
 ### Jobs
 
-Sequential: `build` -> `github-release` + `docker` (last two can be parallel).
+Sequential: `build` -> `github-release` + `docker` (last two parallel).
 
 #### 2.1 `build`
 
@@ -113,7 +138,7 @@ Sequential: `build` -> `github-release` + `docker` (last two can be parallel).
 - **Steps:**
   1. `actions/checkout@v4`
   2. Extract version from tag: `echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV`
-  3. Inject version into `pyproject.toml` (replace `version = "1.0.0"`) and `src/katran/__init__.py` (replace `__version__ = "1.0.0"`)
+  3. Inject version into `pyproject.toml` (replace `version = "1.0.0"`) and `src/katran/__init__.py` (replace `__version__ = "1.0.0"`) using `sed -i`
   4. `actions/setup-python@v5` with Python 3.11
   5. `pip install build`
   6. `python -m build` (produces wheel + sdist in `dist/`)
@@ -133,9 +158,10 @@ Sequential: `build` -> `github-release` + `docker` (last two can be parallel).
 
 - **Needs:** `build`
 - **Steps:**
-  1. `actions/download-artifact@v4` — download `dist/`
-  2. Log in to GHCR: `docker/login-action@v3` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
-  3. Build + push using `docker/build-push-action@v6`:
+  1. `actions/checkout@v4` (for Dockerfile)
+  2. `actions/download-artifact@v4` — download `dist/` into repo root
+  3. Log in to GHCR: `docker/login-action@v3` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
+  4. Build + push using `docker/build-push-action@v6`:
      - Context: `.` (repo root, with `dist/` from artifact)
      - File: `Dockerfile`
      - Tags: `ghcr.io/${{ github.repository }}:<version>`, `ghcr.io/${{ github.repository }}:latest`
@@ -170,26 +196,117 @@ ENTRYPOINT ["uvicorn", "katran.api.rest.app:create_app", \
 - No BPF programs included. Users mount their own: `docker run -v /path/to/bpfs:/bpf ...`
 - Exposes port 8080 for the REST API.
 
----
-
-## 4. Open-Source Scaffolding
-
-### 4.1 LICENSE
-
-Apache-2.0 full text at repo root. Matches the `license = "Apache-2.0"` declaration in `pyproject.toml`.
-
-### 4.2 .gitignore additions
+### `.dockerignore`
 
 ```
+.venv/
+.git/
+tests/
+katran-bpfs/
 samples/
-dist/
-*.whl
+htmlcov/
+.pytest_cache/
+__pycache__/
 *.egg-info/
 ```
 
-### 4.3 Remove `samples/`
+Keeps the Docker build context to just `Dockerfile` + `dist/`.
 
-Delete the `samples/` directory entirely from the repository. It contains vendored third-party sources (grpc, libbpf, etc.) that add bloat and are not needed for the control plane.
+---
+
+## 4. BPF Builder Integration
+
+### Source
+
+BPF programs are built by [nemethhh/katran-bpf-builder](https://github.com/nemethhh/katran-bpf-builder) and published as GitHub Releases. Each release contains a zip with 4 build variants: `base/`, `decap-ipip/`, `decap-gue/`, `full/`.
+
+### CI usage
+
+- The `KATRAN_BPF_VERSION` env var in `ci.yml` pins the BPF build version.
+- Integration and e2e jobs download the zip, extract the `decap-ipip` variant into `katran-bpfs/`.
+- The Dockerfiles' existing `COPY katran-bpfs/ ./katran-bpfs/` picks them up from the build context unchanged.
+
+### Local development
+
+Developers download BPF programs manually:
+
+```bash
+gh release download v2026.03.14-4065efa8 --repo nemethhh/katran-bpf-builder --pattern '*.zip'
+unzip katran-bpf-*.zip -d /tmp/katran-bpf
+cp /tmp/katran-bpf/decap-ipip/* katran-bpfs/
+```
+
+The `katran-bpfs/` directory is already in `.gitignore`.
+
+---
+
+## 5. Open-Source Scaffolding
+
+### 5.1 LICENSE
+
+Apache-2.0 full text at repo root. Matches the `license = "Apache-2.0"` declaration in `pyproject.toml`.
+
+### 5.2 .gitignore updates
+
+Current `.gitignore` already has `samples` and `katran-bpfs`. Add:
+
+```
+dist/
+*.whl
+```
+
+Replace `*/*.egg-info` with `*.egg-info/` (the existing pattern doesn't match all depths).
+
+### 5.3 Remove `samples/`
+
+Delete the `samples/` directory from git tracking. Contains vendored third-party sources (grpc, libbpf, etc.) not needed for the control plane.
+
+### 5.4 Untrack `katran-bpfs/`
+
+Run `git rm -r --cached katran-bpfs/` to remove the tracked `balancer.bpf.o`. The directory is already in `.gitignore`, so it will stay untracked after this.
+
+---
+
+## 6. Local CI via `act`
+
+[nektos/act](https://github.com/nektos/act) runs GitHub Actions locally using Docker. This lets developers validate CI before pushing.
+
+### `.actrc`
+
+Default flags at repo root:
+
+```
+--privileged
+--bind
+```
+
+- `--privileged`: Required for integration/e2e jobs that load BPF/XDP programs.
+- `--bind`: Bind-mount the workspace instead of copying (faster, allows BPF filesystem mounts).
+
+### Makefile targets
+
+```makefile
+ci-local:                  ## Run full CI locally via act
+	act push --privileged
+
+ci-local-lint:             ## Run lint job locally via act
+	act push --privileged -j lint
+
+ci-local-unit:             ## Run unit tests locally via act
+	act push --privileged -j unit-test
+
+ci-local-integration:      ## Run integration tests locally via act
+	act push --privileged -j integration-test
+
+ci-local-e2e:              ## Run e2e tests locally via act
+	act push --privileged -j e2e-test
+```
+
+### Limitations
+
+- `act` uses Docker-in-Docker for jobs that run `docker compose`. The host Docker socket must be available. `--bind` helps with volume mounts.
+- The `release.yml` workflow is not intended for local execution (needs GHCR auth + tag context).
+- BPF programs must be downloaded to `katran-bpfs/` before running integration/e2e jobs locally. The workflow's download step uses `gh release download`, which requires `gh` CLI and GitHub access inside the `act` container. The standard `act` images include `gh`.
 
 ---
 
@@ -201,6 +318,10 @@ Delete the `samples/` directory entirely from the repository. It contains vendor
 | Two workflows (ci + release) | Different triggers, different permissions, different failure modes. Easier to debug independently. |
 | Tag-based versioning | Single source of truth. No manual version bumps. CI patches files at build time. |
 | Runtime-only Docker image | Decouples control plane from BPF builds. Smaller image. Users mount their own programs. |
+| Use Makefile targets for integration/e2e | `run-tests.sh` and `run-e2e.sh` already handle XDP loading, map pinning, healthcheck waiting, and teardown. Replicating that in workflow YAML would be fragile. |
+| BPF from builder releases | Decouples BPF compilation from control plane CI. Version pinned in workflow for reproducibility. |
+| `decap-ipip` variant | E2e tests use IPIP encapsulation/decapsulation. Matches the test topology. |
+| Local CI via `act` | Fast feedback loop. Developers validate CI before pushing. `.actrc` captures default flags so `act` just works. |
 | No CONTRIBUTING/CHANGELOG | User preference for lean scaffolding. Can be added later. |
 | Python matrix 3.11 + 3.12 | Matches pyproject.toml classifiers. Ensures forward compatibility. |
 
@@ -212,3 +333,4 @@ Delete the `samples/` directory entirely from the repository. It contains vendor
 - Changelog automation
 - Dependabot / Renovate configuration
 - Branch protection rules (GitHub settings, not code)
+- Fixing the `katran-ctl` CLI entry point (`pyproject.toml` declares it but `src/katran/cli/main.py` doesn't exist yet — pre-existing issue, unrelated to this work)
