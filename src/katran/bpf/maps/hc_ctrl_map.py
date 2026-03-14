@@ -5,7 +5,6 @@ from __future__ import annotations
 import struct
 
 from katran.bpf.map_manager import BpfMap
-from katran.core.constants import HC_CTRL_MAP_SIZE
 
 
 class HcCtrlMap(BpfMap[int, int]):
