@@ -67,7 +67,7 @@ class CtlArray(BpfMap[int, CtlValue]):
         return struct.pack("<I", key)
 
     def _deserialize_key(self, data: bytes) -> int:
-        return struct.unpack("<I", data)[0]
+        return int(struct.unpack("<I", data)[0])
 
     def _serialize_value(self, value: CtlValue) -> bytes:
         return value.to_bytes()

@@ -14,7 +14,7 @@ BPF Map Definition:
 from __future__ import annotations
 
 from katran.bpf.map_manager import BpfMap, IndexAllocator
-from katran.core.constants import MAX_VIPS
+from katran.core.constants import MAX_VIPS, VipFlags
 from katran.core.exceptions import VipExistsError
 from katran.core.types import (
     VIP_KEY_SIZE,
@@ -209,7 +209,7 @@ class VipMap(BpfMap[VipKey, VipMeta]):
                 return False
 
             # Update flags, keep vip_num
-            new_meta = VipMeta(flags=flags, vip_num=meta.vip_num)
+            new_meta = VipMeta(flags=VipFlags(flags), vip_num=meta.vip_num)
             self.set(key, new_meta)
 
             # Update cache

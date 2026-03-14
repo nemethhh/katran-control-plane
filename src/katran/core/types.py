@@ -381,8 +381,8 @@ class FlowKey:
             is_ipv6 = any(data[4:16]) or any(data[20:32])
 
             if is_ipv6:
-                src_addr = IPv6Address(data[:16])
-                dst_addr = IPv6Address(data[16:32])
+                src_addr: IpAddress = IPv6Address(data[:16])
+                dst_addr: IpAddress = IPv6Address(data[16:32])
             else:
                 src_addr = IPv4Address(data[:4])
                 dst_addr = IPv4Address(data[16:20])
@@ -527,11 +527,11 @@ class CtlValue:
 
     def as_ifindex(self) -> int:
         """Return value as interface index."""
-        return struct.unpack("<I", self.value[:4])[0]
+        return int(struct.unpack("<I", self.value[:4])[0])
 
     def as_u64(self) -> int:
         """Return value as 64-bit integer."""
-        return struct.unpack("<Q", self.value)[0]
+        return int(struct.unpack("<Q", self.value)[0])
 
     def to_bytes(self) -> bytes:
         """Serialize to BPF map value format (8 bytes)."""
@@ -559,6 +559,9 @@ class CtlValue:
 # Total size: 16 bytes
 
 LB_STATS_SIZE = 16
+
+# Alias to avoid shadowing the built-in `bytes` type inside LbStats
+_Bytes = bytes
 
 
 @dataclass
@@ -590,7 +593,7 @@ class LbStats:
         """Add two LbStats together (for aggregating per-CPU values)."""
         return LbStats(v1=self.v1 + other.v1, v2=self.v2 + other.v2)
 
-    def to_bytes(self) -> bytes:
+    def to_bytes(self) -> _Bytes:
         """Serialize to BPF map value format (16 bytes)."""
         try:
             return struct.pack("<QQ", self.v1, self.v2)
@@ -598,7 +601,7 @@ class LbStats:
             raise SerializationError("LbStats", "serialize", str(e)) from e
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> LbStats:
+    def from_bytes(cls, data: _Bytes) -> LbStats:
         """Deserialize from BPF map value format."""
         if len(data) != LB_STATS_SIZE:
             raise SerializationError(

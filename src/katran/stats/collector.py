@@ -7,7 +7,8 @@ that reads data fresh from BPF maps on each scrape.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Generator
+from typing import TYPE_CHECKING, Any
 
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.registry import Collector
@@ -40,7 +41,7 @@ class KatranMetricsCollector(Collector):
         """
         self.service = service
 
-    def describe(self):
+    def describe(self) -> list[Any]:
         """
         Return empty list for unchecked collector.
 
@@ -49,14 +50,14 @@ class KatranMetricsCollector(Collector):
         """
         return []
 
-    def collect(self):
+    def collect(self) -> Generator[Any, None, None]:
         """
         Collect all metrics and yield metric families.
 
         Each subsystem (_collect_*) catches exceptions internally to ensure
         one failure doesn't block other metrics.
         """
-        metrics = []
+        metrics: list[Any] = []
 
         # Early validation - check service reference exists
         if self.service is None:
@@ -86,7 +87,7 @@ class KatranMetricsCollector(Collector):
         for metric in metrics:
             yield metric
 
-    def _collect_service_info(self):
+    def _collect_service_info(self) -> Generator[Any, None, None]:
         """Collect service state metrics (gauges)."""
         try:
             # Service up/down
@@ -109,7 +110,7 @@ class KatranMetricsCollector(Collector):
         except Exception:
             log.warning("Failed to collect service info metrics", exc_info=True)
 
-    def _collect_vip_stats(self):
+    def _collect_vip_stats(self) -> Generator[Any, None, None]:
         """Collect per-VIP statistics."""
         if (
             not self.service.is_running
@@ -223,7 +224,7 @@ class KatranMetricsCollector(Collector):
         except Exception:
             log.warning("Failed to collect VIP stats", exc_info=True)
 
-    def _collect_global_stats(self):
+    def _collect_global_stats(self) -> Generator[Any, None, None]:
         """Collect global statistics counters."""
         if not self.service.is_running or self.service.stats_map is None:
             return
@@ -289,7 +290,7 @@ class KatranMetricsCollector(Collector):
         except Exception:
             log.warning("Failed to collect global stats", exc_info=True)
 
-    def _collect_xdp_stats(self):
+    def _collect_xdp_stats(self) -> Generator[Any, None, None]:
         """Collect XDP action statistics."""
         if not self.service.is_running or self.service.stats_map is None:
             return
@@ -310,7 +311,7 @@ class KatranMetricsCollector(Collector):
         except Exception:
             log.warning("Failed to collect XDP stats", exc_info=True)
 
-    def _collect_per_cpu_stats(self):
+    def _collect_per_cpu_stats(self) -> Generator[Any, None, None]:
         """Collect per-CPU packet counters."""
         if not self.service.is_running or self.service.stats_map is None:
             return

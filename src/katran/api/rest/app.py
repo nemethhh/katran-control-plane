@@ -101,7 +101,7 @@ def _vip_to_response(vip: Any) -> VipResponse:
     )
 
 
-def _lookup_vip(svc, address: str, port: int, protocol: Protocol):
+def _lookup_vip(svc: Any, address: str, port: int, protocol: Protocol) -> Any:
     """Get a VIP or raise 404."""
     vip = svc.vip_manager.get_vip(address=address, port=port, protocol=protocol)
     if vip is None:
@@ -117,7 +117,7 @@ def _lookup_vip(svc, address: str, port: int, protocol: Protocol):
 # ---------------------------------------------------------------------------
 
 
-def get_service(request: Request):
+def get_service(request: Request) -> Any:
     """FastAPI dependency that returns the KatranService or raises 503."""
     service = request.app.state.service
     if service is None or not service.is_running:
@@ -136,7 +136,7 @@ _KATRAN_ERROR_STATUS = {
 }
 
 
-def _katran_error_handler(request: Request, exc: KatranError) -> JSONResponse:
+def _katran_error_handler(request: Request, exc: Exception) -> JSONResponse:
     for err_cls, status in _KATRAN_ERROR_STATUS.items():
         if isinstance(exc, err_cls):
             return JSONResponse(status_code=status, content={"detail": str(exc)})
@@ -148,7 +148,7 @@ def _katran_error_handler(request: Request, exc: KatranError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
-def create_app(service=None) -> FastAPI:
+def create_app(service: Any = None) -> FastAPI:
     """Create the FastAPI application."""
     app = FastAPI(title="Katran Control Plane", version="0.1.0")
     app.state.service = service
@@ -163,7 +163,7 @@ def create_app(service=None) -> FastAPI:
             registry = CollectorRegistry()
             registry.register(KatranMetricsCollector(service))
 
-            def _metrics_handler():
+            def _metrics_handler() -> Response:
                 try:
                     output = generate_latest(registry)
                     return Response(content=output, media_type=CONTENT_TYPE_LATEST)
@@ -184,7 +184,7 @@ def create_app(service=None) -> FastAPI:
     # --- Health -----------------------------------------------------------
 
     @app.get("/health")
-    def health():
+    def health() -> dict[str, str]:
         svc = app.state.service
         if svc is None or not svc.is_running:
             raise HTTPException(status_code=503, detail="Service not running")
@@ -193,7 +193,7 @@ def create_app(service=None) -> FastAPI:
     # --- VIP endpoints ----------------------------------------------------
 
     @app.post("/api/v1/vips", status_code=201, response_model=VipResponse)
-    def add_vip(req: AddVipRequest, svc=Depends(get_service)):
+    def add_vip(req: AddVipRequest, svc: Any = Depends(get_service)) -> VipResponse:
         proto = _parse_protocol(req.protocol)
         vip = svc.vip_manager.add_vip(
             address=req.address,
@@ -209,8 +209,8 @@ def create_app(service=None) -> FastAPI:
         address: Optional[str] = Query(None),
         port: Optional[int] = Query(None),
         protocol: Optional[str] = Query(None),
-        svc=Depends(get_service),
-    ):
+        svc: Any = Depends(get_service),
+    ) -> Any:
         params = [address, port, protocol]
         provided = sum(p is not None for p in params)
 
@@ -224,8 +224,8 @@ def create_app(service=None) -> FastAPI:
                 detail="Provide all of address, port, protocol — or none",
             )
 
-        # Single VIP lookup
-        proto = _parse_protocol(protocol)
+        # Single VIP lookup — all three are non-None at this point
+        proto = _parse_protocol(protocol or "")
         vip = svc.vip_manager.get_vip(address=address, port=port, protocol=proto)
         if vip is None:
             raise HTTPException(
@@ -235,7 +235,7 @@ def create_app(service=None) -> FastAPI:
         return _vip_to_response(vip)
 
     @app.post("/api/v1/vips/remove")
-    def remove_vip(req: VipId, svc=Depends(get_service)):
+    def remove_vip(req: VipId, svc: Any = Depends(get_service)) -> dict[str, str]:
         proto = _parse_protocol(req.protocol)
         removed = svc.vip_manager.remove_vip(
             address=req.address,
@@ -253,7 +253,7 @@ def create_app(service=None) -> FastAPI:
     # --- Backend endpoints ------------------------------------------------
 
     @app.post("/api/v1/backends/add", status_code=201, response_model=RealResponse)
-    def add_backend(req: AddBackendRequest, svc=Depends(get_service)):
+    def add_backend(req: AddBackendRequest, svc: Any = Depends(get_service)) -> RealResponse:
         proto = _parse_protocol(req.vip.protocol)
         vip = _lookup_vip(svc, req.vip.address, req.vip.port, proto)
         real = svc.real_manager.add_real(vip, address=req.address, weight=req.weight)
@@ -267,7 +267,7 @@ def create_app(service=None) -> FastAPI:
         return RealResponse(address=str(real.address), weight=real.weight, index=real.index)
 
     @app.post("/api/v1/backends/remove")
-    def remove_backend(req: BackendId, svc=Depends(get_service)):
+    def remove_backend(req: BackendId, svc: Any = Depends(get_service)) -> dict[str, str]:
         proto = _parse_protocol(req.vip.protocol)
         vip = _lookup_vip(svc, req.vip.address, req.vip.port, proto)
         removed = svc.real_manager.remove_real(vip, address=req.address)
@@ -283,7 +283,7 @@ def create_app(service=None) -> FastAPI:
         return {"status": "removed"}
 
     @app.post("/api/v1/backends/drain")
-    def drain_backend(req: BackendId, svc=Depends(get_service)):
+    def drain_backend(req: BackendId, svc: Any = Depends(get_service)) -> dict[str, str]:
         proto = _parse_protocol(req.vip.protocol)
         vip = _lookup_vip(svc, req.vip.address, req.vip.port, proto)
         drained = svc.real_manager.drain_real(vip, address=req.address)

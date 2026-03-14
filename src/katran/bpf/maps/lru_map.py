@@ -25,6 +25,8 @@ BPF Map Definitions:
 
 from __future__ import annotations
 
+from typing import Any
+
 from katran.bpf.map_manager import BpfMap
 from katran.core.constants import DEFAULT_LRU_SIZE
 from katran.core.types import (
@@ -178,7 +180,7 @@ class LruMap(BpfMap[FlowKey, RealPosLru]):
 
         return count
 
-    def get_cache_stats(self) -> dict[str, int]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """
         Get LRU cache statistics.
 

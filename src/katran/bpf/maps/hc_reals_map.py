@@ -86,13 +86,13 @@ class HcRealsMap(BpfMap[int, int]):
         return struct.pack("<I", key)
 
     def _deserialize_key(self, data: bytes) -> int:
-        return struct.unpack("<I", data)[0]
+        return int(struct.unpack("<I", data)[0])
 
     def _serialize_value(self, value: int) -> bytes:
         return struct.pack("<I", value)
 
     def _deserialize_value(self, data: bytes) -> int:
-        return struct.unpack("<I", data)[0]
+        return int(struct.unpack("<I", data)[0])
 
     # -------------------------------------------------------------------------
     # Healthcheck mapping operations

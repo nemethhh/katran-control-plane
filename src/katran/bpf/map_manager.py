@@ -128,7 +128,7 @@ def _bpf_syscall(cmd: int, attr: ctypes.Structure, size: int) -> int:
     if result < 0:
         err = ctypes.get_errno()
         return -err
-    return result
+    return int(result)
 
 
 # =============================================================================
@@ -500,7 +500,7 @@ class BpfMap(ABC, Generic[K, V]):
 
     def __bool__(self) -> bool:
         """Map is truthy when the FD is open."""
-        return self._fd >= 0
+        return self._fd is not None and self._fd >= 0
 
     def __contains__(self, key: K) -> bool:
         """Check if key exists in map."""

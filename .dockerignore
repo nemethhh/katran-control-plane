@@ -1,7 +1,5 @@
 .venv/
 .git/
-tests/
-katran-bpfs/
 samples/
 htmlcov/
 .pytest_cache/

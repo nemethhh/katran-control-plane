@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Optional
 
 from katran.bpf.maps.ch_rings_map import ChRingsMap
 from katran.bpf.maps.reals_map import RealsMap
-from katran.core.constants import MAX_REALS
+from katran.core.constants import MAX_REALS, RealFlags
 from katran.core.exceptions import (
     RealExistsError,
 )
@@ -169,7 +169,7 @@ class RealManager:
                 address=address,
                 weight=weight,
                 index=real_meta.num,
-                flags=real_meta.flags,
+                flags=RealFlags(real_meta.flags),
             )
 
             # Add to VIP's backend list
@@ -474,7 +474,7 @@ class RealManager:
             self._num_to_reals[idx] = address
 
             # Write to BPF reals array
-            real_def = RealDefinition(address=address, flags=meta.flags)
+            real_def = RealDefinition(address=address, flags=RealFlags(meta.flags))
             self._reals_map.set(idx, real_def)
 
             logger.debug(f"Allocated new backend {address} at index {idx}, ref_count=1")

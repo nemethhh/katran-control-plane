@@ -6,9 +6,10 @@ Wires together BPF maps, managers, and provides lifecycle management.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from katran.bpf import (
+    BpfMap,
     ChRingsMap,
     CtlArray,
     HcRealsMap,
@@ -82,7 +83,7 @@ class KatranService:
         self.stats_map = StatsMap(pin_path, max_vips=maps_cfg.max_vips)
         self.ctl_array = CtlArray(pin_path)
 
-        required_maps = [
+        required_maps: list[BpfMap[Any, Any]] = [
             self.vip_map,
             self.reals_map,
             self.ch_rings_map,
@@ -97,23 +98,27 @@ class KatranService:
 
         # Optional maps – tolerate missing pins (e.g. hc_reals comes from a
         # separate TC healthcheck program that may not be loaded).
-        optional_specs = [
+        optional_specs: list[tuple[str, Any]] = [
             ("hc_reals_map", lambda: HcRealsMap(pin_path)),
             ("lru_map", lambda: LruMap(pin_path, max_entries=maps_cfg.lru_size)),
         ]
 
         for attr, factory in optional_specs:
             try:
-                m = factory()
-                m.open()
-                setattr(self, attr, m)
-                self._opened_maps.append(m)
-                logger.debug("Opened optional map: %s", type(m).__name__)
+                opt_map: BpfMap[Any, Any] = factory()
+                opt_map.open()
+                setattr(self, attr, opt_map)
+                self._opened_maps.append(opt_map)
+                logger.debug("Opened optional map: %s", type(opt_map).__name__)
             except Exception:
                 logger.info("Optional map %s unavailable, skipping", attr)
 
     def _initialize_managers(self) -> None:
         """Create VipManager and RealManager with correct signatures."""
+        assert self.vip_map is not None
+        assert self.ch_rings_map is not None
+        assert self.reals_map is not None
+
         self.vip_manager = VipManager(
             self.vip_map,
             self.ch_rings_map,
