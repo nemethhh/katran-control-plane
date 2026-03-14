@@ -1,5 +1,6 @@
 """Load balancer logic module."""
 
+from katran.lb.decap_manager import DecapManager
 from katran.lb.maglev import (
     Endpoint,
     MaglevHashRing,
@@ -7,7 +8,9 @@ from katran.lb.maglev import (
     hash_endpoint_address,
     murmur_hash3_x64_64,
 )
+from katran.lb.quic_manager import QuicManager
 from katran.lb.real_manager import RealManager
+from katran.lb.src_routing_manager import SrcRoutingManager
 from katran.lb.vip_manager import VipManager
 
 __all__ = [
@@ -20,4 +23,8 @@ __all__ = [
     # VIP and backend management
     "VipManager",
     "RealManager",
+    # Feature managers
+    "DecapManager",
+    "SrcRoutingManager",
+    "QuicManager",
 ]
