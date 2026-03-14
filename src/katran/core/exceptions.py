@@ -195,3 +195,40 @@ class BpfAttachError(KatranError):
         self.interface = interface
         self.program_type = program_type
         super().__init__(f"Failed to attach {program_type} program to '{interface}': {message}")
+
+
+# =============================================================================
+# Feature-Gated Errors
+# =============================================================================
+
+
+class FeatureNotEnabledError(KatranError):
+    """Raised when an operation requires a feature that is not enabled."""
+
+    def __init__(self, feature: str) -> None:
+        self.feature = feature
+        super().__init__(f"Feature not enabled: {feature}")
+
+
+class HealthCheckError(KatranError):
+    """Raised when a health check operation fails."""
+
+    pass
+
+
+class SrcRoutingError(KatranError):
+    """Raised when a source routing operation fails."""
+
+    pass
+
+
+class QuicMappingError(KatranError):
+    """Raised when a QUIC server ID mapping operation fails."""
+
+    pass
+
+
+class DecapError(KatranError):
+    """Raised when an inline decapsulation operation fails."""
+
+    pass

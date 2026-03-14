@@ -48,3 +48,36 @@ class TestNewConstants:
         assert MAX_LPM_SRC == 3_000_000
         assert MAX_DECAP_DST == 6
         assert MAX_QUIC_REALS == 0x00FFFFFE
+
+
+from katran.core.exceptions import (
+    DecapError,
+    FeatureNotEnabledError,
+    HealthCheckError,
+    KatranError,
+    QuicMappingError,
+    SrcRoutingError,
+)
+
+
+class TestNewExceptions:
+    def test_feature_not_enabled(self):
+        err = FeatureNotEnabledError("SRC_ROUTING")
+        assert "SRC_ROUTING" in str(err)
+        assert isinstance(err, KatranError)
+
+    def test_health_check_error(self):
+        err = HealthCheckError("HC map full")
+        assert isinstance(err, KatranError)
+
+    def test_src_routing_error(self):
+        err = SrcRoutingError("invalid CIDR")
+        assert isinstance(err, KatranError)
+
+    def test_quic_mapping_error(self):
+        err = QuicMappingError("ID out of range")
+        assert isinstance(err, KatranError)
+
+    def test_decap_error(self):
+        err = DecapError("max destinations reached")
+        assert isinstance(err, KatranError)
