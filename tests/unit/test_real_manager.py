@@ -430,3 +430,34 @@ class TestRealManagerThreadSafety:
         # Check indices are unique
         indices = [r[1] for r in results if r[0] == "success"]
         assert len(set(indices)) == 10
+
+
+class TestRealManagerPublicRefCounting:
+    def test_increase_ref_count_new_real(self, real_manager):
+        index = real_manager.increase_ref_count("10.0.0.100")
+        assert index >= 1
+        assert real_manager.get_real_ref_count("10.0.0.100") == 1
+
+    def test_increase_ref_count_existing_real(self, real_manager):
+        idx1 = real_manager.increase_ref_count("10.0.0.100")
+        idx2 = real_manager.increase_ref_count("10.0.0.100")
+        assert idx1 == idx2
+        assert real_manager.get_real_ref_count("10.0.0.100") == 2
+
+    def test_decrease_ref_count(self, real_manager):
+        real_manager.increase_ref_count("10.0.0.100")
+        real_manager.increase_ref_count("10.0.0.100")
+        real_manager.decrease_ref_count("10.0.0.100")
+        assert real_manager.get_real_ref_count("10.0.0.100") == 1
+
+    def test_decrease_ref_count_to_zero_frees(self, real_manager):
+        real_manager.increase_ref_count("10.0.0.100")
+        real_manager.decrease_ref_count("10.0.0.100")
+        assert real_manager.get_real_ref_count("10.0.0.100") == 0
+
+    def test_get_index_for_real(self, real_manager):
+        idx = real_manager.increase_ref_count("10.0.0.100")
+        assert real_manager.get_index_for_real("10.0.0.100") == idx
+
+    def test_get_index_for_real_unknown(self, real_manager):
+        assert real_manager.get_index_for_real("10.0.0.100") is None

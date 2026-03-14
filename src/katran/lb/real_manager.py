@@ -438,6 +438,30 @@ class RealManager:
             return meta.ref_count if meta else 0
 
     # =========================================================================
+    # Public Reference Counting (for shared real tracking)
+    # =========================================================================
+
+    def increase_ref_count(self, address: str) -> int:
+        """Increment ref count for a real, allocating if new. Returns real index."""
+        with self._lock:
+            ip_addr = _parse_ip_address(address)
+            meta = self._increase_ref_count(ip_addr)
+            return meta.num
+
+    def decrease_ref_count(self, address: str) -> None:
+        """Decrement ref count for a real, freeing if count reaches 0."""
+        with self._lock:
+            ip_addr = _parse_ip_address(address)
+            self._decrease_ref_count(ip_addr)
+
+    def get_index_for_real(self, address: str) -> int | None:
+        """Get the current BPF array index for a real address, or None."""
+        with self._lock:
+            ip_addr = _parse_ip_address(address)
+            meta = self._reals.get(ip_addr)
+            return meta.num if meta is not None else None
+
+    # =========================================================================
     # Reference Counting (Internal)
     # =========================================================================
 
