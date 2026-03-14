@@ -141,10 +141,7 @@ class VipKey:
             # Check if IPv6 (non-zero bytes after first 4)
             is_ipv6 = any(data[4:16])
 
-            if is_ipv6:
-                address = IPv6Address(data[:16])
-            else:
-                address = IPv4Address(data[:4])
+            address = IPv6Address(data[:16]) if is_ipv6 else IPv4Address(data[:4])
 
             # Port (2 bytes, network byte order)
             port = struct.unpack("!H", data[16:18])[0]
@@ -285,10 +282,7 @@ class RealDefinition:
         try:
             flags = RealFlags(data[16])
 
-            if flags & RealFlags.IPV6:
-                address = IPv6Address(data[:16])
-            else:
-                address = IPv4Address(data[:4])
+            address = IPv6Address(data[:16]) if flags & RealFlags.IPV6 else IPv4Address(data[:4])
 
             return cls(address=address, flags=flags)
 

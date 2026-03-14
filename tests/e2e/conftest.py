@@ -78,7 +78,7 @@ def api_client(api_url) -> httpx.Client:
     client = httpx.Client(base_url=api_url, timeout=30.0)
 
     # Wait for API readiness
-    for attempt in range(30):
+    for _attempt in range(30):
         try:
             resp = client.get("/health")
             if resp.status_code == 200:

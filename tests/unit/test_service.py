@@ -108,7 +108,6 @@ class TestServiceLifecycle:
         bad_map = _make_mock_map()
         bad_map.open.side_effect = OSError("Permission denied")
 
-        call_count = 0
 
         def make_map_factory(instances):
             """Return different mock instances on successive calls."""

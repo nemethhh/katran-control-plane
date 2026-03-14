@@ -169,9 +169,7 @@ def _is_flat_config(data: dict[str, Any]) -> bool:
     if set(data.keys()) & unambiguous_flat:
         return True
     # "interface" exists in both formats: str in flat, dict in nested
-    if "interface" in data and isinstance(data["interface"], str):
-        return True
-    return False
+    return bool("interface" in data and isinstance(data["interface"], str))
 
 
 def _normalize_flat_config(data: dict[str, Any]) -> dict[str, Any]:
@@ -229,9 +227,9 @@ class KatranConfig(BaseModel):
             with open(path) as f:
                 data = yaml.safe_load(f)
         except FileNotFoundError:
-            raise ConfigurationError(f"Config file not found: {path}")
+            raise ConfigurationError(f"Config file not found: {path}") from None
         except yaml.YAMLError as e:
-            raise ConfigurationError(f"Invalid YAML: {e}")
+            raise ConfigurationError(f"Invalid YAML: {e}") from e
 
         if data is None:
             data = {}
@@ -239,7 +237,7 @@ class KatranConfig(BaseModel):
         try:
             return cls.model_validate(data)
         except Exception as e:
-            raise ConfigurationError(str(e))
+            raise ConfigurationError(str(e)) from e
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> KatranConfig:
@@ -247,7 +245,7 @@ class KatranConfig(BaseModel):
         try:
             return cls.model_validate(data)
         except Exception as e:
-            raise ConfigurationError(str(e))
+            raise ConfigurationError(str(e)) from e
 
     def validate_paths(self) -> list[str]:
         """

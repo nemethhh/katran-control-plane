@@ -384,7 +384,7 @@ class TestLargeRing:
             for i in range(100)
         ]
 
-        result = ring.build(endpoints)
+        ring.build(endpoints)
 
         dist = ring.get_distribution()
         assert len(dist) == 100  # All backends present
@@ -527,7 +527,7 @@ class TestRingRebuildOptimization:
 
         # Method 2: Separate builds
         ring2 = MaglevHashRing(ring_size=1009)
-        old_ring_separate = ring2.build(endpoints1)
+        ring2.build(endpoints1)
         ring3 = MaglevHashRing(ring_size=1009)
         new_ring_separate = ring3.build(endpoints2)
 

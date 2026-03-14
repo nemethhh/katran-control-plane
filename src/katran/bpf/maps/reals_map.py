@@ -239,9 +239,7 @@ class RealsMap(BpfMap[int, RealDefinition]):
 
             for i in range(1, self._max_reals):
                 real_def = self.get(i)
-                if real_def is not None:
-                    # Check if entry is non-zero (has valid address)
-                    if real_def.address.packed != b"\x00" * 4:
+                if real_def is not None and real_def.address.packed != b"\x00" * 4:
                         self._reals_cache[i] = real_def
                         self._index_allocator.reserve(i)
 

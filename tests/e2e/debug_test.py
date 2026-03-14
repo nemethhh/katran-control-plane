@@ -6,6 +6,7 @@ followed by test_multiple_vips_separate_counters.
 Run from test-client container with e2e environment running.
 """
 
+import contextlib
 import sys
 import time
 
@@ -153,7 +154,7 @@ def test_2_multiple_vips(api_client):
     finally:
         log("Cleanup...")
         for port in (vip1_port, vip2_port):
-            try:
+            with contextlib.suppress(Exception):
                 api_client.post(
                     "/api/v1/backends/remove",
                     json={
@@ -161,9 +162,7 @@ def test_2_multiple_vips(api_client):
                         "address": backend_addr,
                     },
                 )
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 api_client.post(
                     "/api/v1/vips/remove",
                     json={
@@ -172,8 +171,6 @@ def test_2_multiple_vips(api_client):
                         "protocol": TRAFFIC_VIP_PROTO,
                     },
                 )
-            except Exception:
-                pass
 
 
 def main():

@@ -188,7 +188,7 @@ class LruMap(BpfMap[FlowKey, RealPosLru]):
         backend_counts: dict[int, int] = {}
         total = 0
 
-        for flow, cached in self.items():
+        for _flow, cached in self.items():
             total += 1
             backend_counts[cached.pos] = backend_counts.get(cached.pos, 0) + 1
 

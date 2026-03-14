@@ -85,7 +85,7 @@ def _parse_protocol(proto_str: str) -> Protocol:
     try:
         return Protocol[proto_str.upper()]
     except KeyError:
-        raise HTTPException(status_code=400, detail=f"Invalid protocol: {proto_str}")
+        raise HTTPException(status_code=400, detail=f"Invalid protocol: {proto_str}") from None
 
 
 def _vip_to_response(vip: Any) -> VipResponse:

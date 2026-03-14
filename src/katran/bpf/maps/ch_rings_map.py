@@ -162,7 +162,7 @@ class ChRingsMap(BpfMap[int, int]):
         old_ring = self.read_ring(vip_num)
         updates = {}
 
-        for i, (old_val, new_val) in enumerate(zip(old_ring, ring)):
+        for i, (old_val, new_val) in enumerate(zip(old_ring, ring, strict=False)):
             if old_val != new_val:
                 updates[i] = new_val
 
@@ -288,7 +288,7 @@ class ChRingsMap(BpfMap[int, int]):
 
         # Compute positions that changed
         updates = {}
-        for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
+        for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring, strict=False)):
             if old_val != new_val:
                 updates[i] = new_val
 

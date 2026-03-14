@@ -93,7 +93,7 @@ def assert_ring_distribution(
         )
 
     # Check distribution is reasonable
-    total = sum(counts.values())
+    sum(counts.values())
     expected_per_backend = ring_size // len(expected_indices)
     max_deviation = expected_per_backend * tolerance
 
@@ -228,7 +228,7 @@ def vip_manager(vip_map, ch_rings_map):
     # Clean up test VIPs from BPF maps before creating manager
     # Scan BPF map directly since manager starts with empty state
     all_vips = vip_map.get_all_vips()
-    for key, meta in all_vips.items():
+    for key, _meta in all_vips.items():
         addr_str = str(key.address)
         if "10.200.1." in addr_str or "2001:db8:" in addr_str:
             vip_map.remove_vip(key)
@@ -459,8 +459,7 @@ class TestRealManagerIntegration:
 
     def test_remove_real_from_vip(self, real_manager, test_vip):
         """Test removing backend from VIP."""
-        real = real_manager.add_real(test_vip, "10.0.0.100", weight=100)
-        real_index = real.index
+        real_manager.add_real(test_vip, "10.0.0.100", weight=100)
 
         # Remove
         result = real_manager.remove_real(test_vip, "10.0.0.100")
@@ -763,9 +762,9 @@ class TestVipRealManagersCombined:
         assert vip.is_allocated
 
         # Add backends
-        real1 = real_manager.add_real(vip, "10.0.0.100", weight=100)
-        real2 = real_manager.add_real(vip, "10.0.0.101", weight=100)
-        real3 = real_manager.add_real(vip, "10.0.0.102", weight=100)
+        real_manager.add_real(vip, "10.0.0.100", weight=100)
+        real_manager.add_real(vip, "10.0.0.101", weight=100)
+        real_manager.add_real(vip, "10.0.0.102", weight=100)
 
         assert len(vip.reals) == 3
 
@@ -788,10 +787,10 @@ class TestVipRealManagersCombined:
 
         # Add shared backends
         real1_vip1 = real_manager.add_real(vip1, "10.0.0.100", weight=100)
-        real2_vip1 = real_manager.add_real(vip1, "10.0.0.101", weight=100)
+        real_manager.add_real(vip1, "10.0.0.101", weight=100)
 
         real1_vip2 = real_manager.add_real(vip2, "10.0.0.100", weight=100)  # Shared
-        real2_vip2 = real_manager.add_real(vip2, "10.0.0.102", weight=100)
+        real_manager.add_real(vip2, "10.0.0.102", weight=100)
 
         # Verify sharing
         assert real1_vip1.index == real1_vip2.index  # Same backend

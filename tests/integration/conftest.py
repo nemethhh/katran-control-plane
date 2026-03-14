@@ -12,10 +12,14 @@ Or: docker compose -f docker-compose.test.yml run katran-target pytest tests/int
 """
 
 import os
+from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Generator
 
 import pytest
+
+from katran.core.constants import Protocol, RealFlags, VipFlags
+from katran.core.types import Real, RealDefinition, Vip, VipKey, VipMeta
 
 # Environment configuration
 BPF_PATH = Path(os.environ.get("KATRAN_BPF_PATH", "/app/katran-bpfs"))
@@ -93,11 +97,6 @@ def pinned_map_names(bpf_environment: dict) -> list[str]:
 # =============================================================================
 # Test Data Fixtures
 # =============================================================================
-
-from ipaddress import IPv4Address
-
-from katran.core.constants import Protocol, RealFlags, VipFlags
-from katran.core.types import Real, RealDefinition, Vip, VipKey, VipMeta
 
 
 @pytest.fixture

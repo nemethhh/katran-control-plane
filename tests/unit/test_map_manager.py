@@ -28,7 +28,7 @@ class TestIndexAllocator:
         allocator = IndexAllocator(max_index=10)
 
         idx1 = allocator.allocate()
-        idx2 = allocator.allocate()
+        allocator.allocate()
 
         allocator.free(idx1)
 

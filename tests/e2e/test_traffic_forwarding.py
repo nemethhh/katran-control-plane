@@ -9,6 +9,7 @@ real HTTP traffic to the VIP address and verifies responses come from
 the expected backend(s).
 """
 
+import contextlib
 import time
 from collections import Counter
 
@@ -93,10 +94,7 @@ def _drain_backend(
 
 def _send_request(vip_addr, port=TRAFFIC_VIP_PORT, timeout=5.0):
     """Send a single HTTP GET to the VIP and return the parsed JSON body."""
-    if ":" in vip_addr:
-        url = f"http://[{vip_addr}]:{port}/"
-    else:
-        url = f"http://{vip_addr}:{port}/"
+    url = f"http://[{vip_addr}]:{port}/" if ":" in vip_addr else f"http://{vip_addr}:{port}/"
     resp = httpx.get(url, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
@@ -217,7 +215,7 @@ class TestDrainShiftsTraffic:
             successful = [r for r in results if r is not None]
             assert len(successful) > 0, "No successful responses after drain"
 
-            backends_seen = set(r["backend"] for r in successful)
+            backends_seen = {r["backend"] for r in successful}
             # After draining backend-1 (weight=0), all traffic should go to backend-2
             assert "backend-2" in backends_seen, "backend-2 should receive traffic"
         finally:
@@ -429,7 +427,7 @@ class TestDrainShiftsTrafficV6:
             successful = [r for r in results if r is not None]
             assert len(successful) > 0, "No successful responses after drain"
 
-            backends_seen = set(r["backend"] for r in successful)
+            backends_seen = {r["backend"] for r in successful}
             assert "backend-2" in backends_seen, "backend-2 should receive traffic"
         finally:
             _remove_backend(api_client, vip_addr6, backend_1_addr6)
@@ -610,14 +608,10 @@ class TestMetricsAccuracy:
             # Best-effort cleanup: suppress errors so we don't mask the
             # real failure and don't leave stale state for the next test.
             for port in (vip1_port, vip2_port):
-                try:
+                with contextlib.suppress(Exception):
                     _remove_backend(api_client, vip1_addr, backend_1_addr, port=port)
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     _teardown_vip(api_client, vip1_addr, port=port)
-                except Exception:
-                    pass
 
 
 def _wait_for_api(api_client, timeout=30):
@@ -687,11 +681,7 @@ class TestMetricsAccuracyV6:
                 )
 
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 _remove_backend(api_client, vip_addr6, backend_1_addr6)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 _teardown_vip(api_client, vip_addr6)
-            except Exception:
-                pass

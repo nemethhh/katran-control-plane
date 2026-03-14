@@ -150,10 +150,7 @@ def _is_prime(n: int) -> bool:
         return True
     if n % 2 == 0:
         return False
-    for i in range(3, int(n**0.5) + 1, 2):
-        if n % i == 0:
-            return False
-    return True
+    return all(n % i != 0 for i in range(3, int(n ** 0.5) + 1, 2))
 
 
 def _gen_maglev_permutation(endpoint: Endpoint, ring_size: int) -> tuple[int, int]:
@@ -356,7 +353,7 @@ class MaglevHashRing:
         # Compute changes
         changes: dict[int, tuple[int, int]] = {}
         if old_ring and len(old_ring) == len(new_ring):
-            for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
+            for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring, strict=False)):
                 if old_val != new_val:
                     changes[i] = (old_val, new_val)
 
@@ -434,7 +431,7 @@ def compute_ring_changes(old_ring: list[int], new_ring: list[int]) -> tuple[int,
     if len(old_ring) != len(new_ring):
         raise ValueError("Rings must be the same size")
 
-    changed = sum(1 for o, n in zip(old_ring, new_ring) if o != n)
+    changed = sum(1 for o, n in zip(old_ring, new_ring, strict=False) if o != n)
     percentage = (changed / len(old_ring)) * 100 if old_ring else 0.0
 
     return changed, percentage
@@ -468,7 +465,7 @@ def compute_ring_updates(old_ring: list[int], new_ring: list[int]) -> dict[int, 
         raise ValueError("Rings must be the same size")
 
     updates: dict[int, int] = {}
-    for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring)):
+    for i, (old_val, new_val) in enumerate(zip(old_ring, new_ring, strict=False)):
         if old_val != new_val:
             updates[i] = new_val
 
