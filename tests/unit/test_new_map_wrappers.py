@@ -355,3 +355,22 @@ class TestHcRealsMapRewrite:
         hrd = HcRealDefinition(address="10.0.0.1", flags=0)
         restored = m._deserialize_value(m._serialize_value(hrd))
         assert restored.address == "10.0.0.1"
+
+
+# =========================================================================
+# Task 12: Down Reals Map (HASH_OF_MAPS)
+# =========================================================================
+
+
+class TestDownRealsMapSerialization:
+    def test_key_is_vipkey(self) -> None:
+        from katran.bpf.maps.down_reals_map import VipToDownRealsMap
+
+        m = VipToDownRealsMap.__new__(VipToDownRealsMap)
+        assert m._key_size == 20
+
+    def test_value_is_u32(self) -> None:
+        from katran.bpf.maps.down_reals_map import VipToDownRealsMap
+
+        m = VipToDownRealsMap.__new__(VipToDownRealsMap)
+        assert m._value_size == 4
