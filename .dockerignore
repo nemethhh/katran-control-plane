@@ -1,0 +1,9 @@
+.venv/
+.git/
+tests/
+katran-bpfs/
+samples/
+htmlcov/
+.pytest_cache/
+__pycache__/
+*.egg-info/
