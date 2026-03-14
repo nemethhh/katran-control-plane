@@ -6,7 +6,7 @@ These values must stay synchronized with:
 - katran/lib/bpf/balancer_structs.h
 """
 
-from enum import IntEnum, IntFlag
+from enum import Enum, IntEnum, IntFlag
 
 # =============================================================================
 # Map Size Constants
@@ -168,6 +168,7 @@ class StatsCounterIndex(IntEnum):
     ICMP_TOOBIG_CNTRS = 4  # ICMP PTB counters
     LPM_SRC_CNTRS = 5  # Source-based routing counters
     REMOTE_ENCAP_CNTRS = 6  # Remote encapsulation counters
+    ENCAP_FAIL_CNTR = 7  # Encapsulation failure counters
     GLOBAL_LRU_CNTR = 8  # Global LRU counters
     CH_DROP_STATS = 9  # Consistent hash drop counters
     DECAP_CNTR = 10  # Decapsulation counters
@@ -180,6 +181,40 @@ class StatsCounterIndex(IntEnum):
     XDP_TX_CNTR = 17  # XDP_TX packets
     XDP_DROP_CNTR = 18  # XDP_DROP packets
     XDP_PASS_CNTR = 19  # XDP_PASS packets
+
+
+class KatranFeature(IntFlag):
+    """Config-driven feature enablement flags."""
+
+    SRC_ROUTING = 1 << 0
+    INLINE_DECAP = 1 << 1
+    INTROSPECTION = 1 << 2
+    GUE_ENCAP = 1 << 3
+    DIRECT_HEALTHCHECKING = 1 << 4
+    LOCAL_DELIVERY_OPTIMIZATION = 1 << 5
+    FLOW_DEBUG = 1 << 6
+
+
+class ModifyAction(Enum):
+    """Action for batch modify operations."""
+
+    ADD = "add"
+    DEL = "del"
+
+
+# Health Check Constants
+HC_CTRL_MAP_SIZE = 4
+HC_MAIN_INTF_POSITION = 3
+HC_SRC_MAC_POS = 0
+HC_DST_MAC_POS = 1
+HC_STATS_SIZE = 1
+V4_SRC_INDEX = 0
+V6_SRC_INDEX = 1
+
+# New Map Size Defaults
+MAX_LPM_SRC = 3_000_000
+MAX_DECAP_DST = 6
+MAX_QUIC_REALS = 0x00FFFFFE
 
 
 # =============================================================================
