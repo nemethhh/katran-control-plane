@@ -225,3 +225,49 @@ class TestServerIdStatsMapSerialization:
         m = ServerIdStatsMap.__new__(ServerIdStatsMap)
         val = LbStats(v1=50, v2=75)
         assert m._deserialize_value(m._serialize_value(val)) == val
+
+
+# =========================================================================
+# Task 9: HC Key + Ctrl + Sources + MACs Maps
+# =========================================================================
+
+
+class TestHcKeyMapSerialization:
+    def test_key_is_vipkey(self) -> None:
+        from katran.bpf.maps.hc_key_map import HcKeyMap
+
+        m = HcKeyMap.__new__(HcKeyMap)
+        assert m._key_size == 20
+
+    def test_value_is_u32(self) -> None:
+        from katran.bpf.maps.hc_key_map import HcKeyMap
+
+        m = HcKeyMap.__new__(HcKeyMap)
+        assert m._value_size == 4
+
+
+class TestHcPcktSrcsMapSerialization:
+    def test_value_size(self) -> None:
+        from katran.bpf.maps.hc_pckt_srcs_map import HcPcktSrcsMap
+
+        m = HcPcktSrcsMap.__new__(HcPcktSrcsMap)
+        assert m._value_size == 20
+
+
+class TestHcCtrlMapSerialization:
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.hc_ctrl_map import HcCtrlMap
+
+        m = HcCtrlMap.__new__(HcCtrlMap)
+        assert m._deserialize_value(m._serialize_value(42)) == 42
+
+
+class TestHcPcktMacsSerialization:
+    def test_value_roundtrip(self) -> None:
+        from katran.bpf.maps.hc_pckt_macs_map import HcPcktMacsMap
+
+        m = HcPcktMacsMap.__new__(HcPcktMacsMap)
+        mac = HcMac(mac=b"\xaa\xbb\xcc\xdd\xee\xff")
+        data = m._serialize_value(mac)
+        restored = m._deserialize_value(data)
+        assert restored.mac == mac.mac
