@@ -21,12 +21,23 @@ from katran.core.types import (
     VIP_META_SIZE,
     CtlValue,
     FlowKey,
+    HcRealDefinition,
+    HealthCheckProgStats,
     LbStats,
+    LruAnalysis,
+    LruEntries,
+    LruEntry,
+    PurgeResponse,
+    QuicPacketStats,
+    QuicReal,
     Real,
     RealDefinition,
     RealPosLru,
+    V4LpmKey,
+    V6LpmKey,
     Vip,
     VipKey,
+    VipLruStats,
     VipMeta,
 )
 
@@ -465,3 +476,55 @@ class TestReal:
         real_def = real.to_real_definition()
         assert real_def.address == real.address
         assert real_def.flags == real.flags
+
+
+class TestV4LpmKey:
+    def test_roundtrip(self):
+        key = V4LpmKey(prefixlen=24, addr="10.0.0.0")
+        data = key.to_bytes()
+        assert len(data) == 8
+        restored = V4LpmKey.from_bytes(data)
+        assert restored == key
+
+    def test_host_route(self):
+        key = V4LpmKey(prefixlen=32, addr="192.168.1.1")
+        data = key.to_bytes()
+        restored = V4LpmKey.from_bytes(data)
+        assert restored.prefixlen == 32
+
+
+class TestV6LpmKey:
+    def test_roundtrip(self):
+        key = V6LpmKey(prefixlen=64, addr="2001:db8::")
+        data = key.to_bytes()
+        assert len(data) == 20
+        restored = V6LpmKey.from_bytes(data)
+        assert restored == key
+
+
+class TestHcRealDefinition:
+    def test_ipv4_roundtrip(self):
+        hrd = HcRealDefinition(address="10.0.0.1", flags=0)
+        data = hrd.to_bytes()
+        assert len(data) == 20
+        restored = HcRealDefinition.from_bytes(data)
+        assert restored.address == "10.0.0.1"
+
+    def test_ipv6_with_flag(self):
+        hrd = HcRealDefinition(address="2001:db8::1", flags=1)
+        data = hrd.to_bytes()
+        restored = HcRealDefinition.from_bytes(data)
+        assert restored.flags == 1
+
+
+class TestQuicPacketStats:
+    def test_defaults(self):
+        stats = QuicPacketStats()
+        assert stats.ch_routed == 0
+        assert stats.cid_routed == 0
+
+
+class TestHealthCheckProgStats:
+    def test_defaults(self):
+        stats = HealthCheckProgStats()
+        assert stats.packets_processed == 0

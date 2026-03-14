@@ -626,6 +626,213 @@ class LbStats:
 
 
 # =============================================================================
+# LPM Trie Key Structures
+# =============================================================================
+
+V4_LPM_KEY_SIZE = 8
+V6_LPM_KEY_SIZE = 20
+
+
+@dataclass(frozen=True)
+class V4LpmKey:
+    """BPF LPM trie key for IPv4: { __u32 prefixlen; __be32 addr; }"""
+
+    prefixlen: int
+    addr: str
+
+    def to_bytes(self) -> bytes:
+        return struct.pack("<I", self.prefixlen) + IPv4Address(self.addr).packed
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> V4LpmKey:
+        if len(data) != V4_LPM_KEY_SIZE:
+            raise SerializationError(
+                "V4LpmKey", "deserialize",
+                f"Expected {V4_LPM_KEY_SIZE} bytes, got {len(data)}"
+            )
+        prefixlen = struct.unpack("<I", data[:4])[0]
+        addr = str(IPv4Address(data[4:8]))
+        return cls(prefixlen=prefixlen, addr=addr)
+
+
+@dataclass(frozen=True)
+class V6LpmKey:
+    """BPF LPM trie key for IPv6: { __u32 prefixlen; __be32 addr[4]; }"""
+
+    prefixlen: int
+    addr: str
+
+    def to_bytes(self) -> bytes:
+        return struct.pack("<I", self.prefixlen) + IPv6Address(self.addr).packed
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> V6LpmKey:
+        if len(data) != V6_LPM_KEY_SIZE:
+            raise SerializationError(
+                "V6LpmKey", "deserialize",
+                f"Expected {V6_LPM_KEY_SIZE} bytes, got {len(data)}"
+            )
+        prefixlen = struct.unpack("<I", data[:4])[0]
+        addr = str(IPv6Address(data[4:20]))
+        return cls(prefixlen=prefixlen, addr=addr)
+
+
+# =============================================================================
+# Health Check Types
+# =============================================================================
+
+HC_REAL_DEFINITION_SIZE = 20
+
+
+@dataclass
+class HcMac:
+    """6-byte MAC address for HC packet construction."""
+
+    mac: bytes
+
+    def to_bytes(self) -> bytes:
+        if len(self.mac) != 6:
+            raise SerializationError("HcMac", "serialize", "MAC must be 6 bytes")
+        return self.mac + b"\x00" * 2
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> HcMac:
+        return cls(mac=data[:6])
+
+    @classmethod
+    def from_string(cls, mac_str: str) -> HcMac:
+        mac_bytes = bytes.fromhex(mac_str.replace(":", "").replace("-", ""))
+        return cls(mac=mac_bytes)
+
+
+@dataclass
+class HcRealDefinition:
+    """Value for hc_reals_map: 16-byte addr + 1-byte flags + 3 padding = 20 bytes."""
+
+    address: str
+    flags: int = 0
+
+    def to_bytes(self, tunnel_based_hc: bool = True) -> bytes:
+        addr = ip_address(self.address)
+        if isinstance(addr, IPv6Address):
+            addr_bytes = addr.packed
+        else:
+            if tunnel_based_hc:
+                addr_bytes = struct.pack("<I", int(addr)) + b"\x00" * 12
+            else:
+                addr_bytes = addr.packed + b"\x00" * 12
+        flags_bytes = struct.pack("BBBB", self.flags, 0, 0, 0)
+        return addr_bytes + flags_bytes
+
+    @classmethod
+    def from_bytes(
+        cls, data: bytes, tunnel_based_hc: bool = True
+    ) -> HcRealDefinition:
+        if len(data) != HC_REAL_DEFINITION_SIZE:
+            raise SerializationError(
+                "HcRealDefinition", "deserialize",
+                f"Expected {HC_REAL_DEFINITION_SIZE} bytes, got {len(data)}"
+            )
+        flags = data[16]
+        is_v6 = bool(flags & 1)
+        if is_v6:
+            address = str(IPv6Address(data[:16]))
+        else:
+            if tunnel_based_hc:
+                addr_int = struct.unpack("<I", data[:4])[0]
+                address = str(IPv4Address(addr_int))
+            else:
+                address = str(IPv4Address(data[:4]))
+        return cls(address=address, flags=flags)
+
+
+@dataclass
+class HealthCheckProgStats:
+    """HC BPF program statistics."""
+
+    packets_processed: int = 0
+    packets_dropped: int = 0
+    packets_skipped: int = 0
+    packets_too_big: int = 0
+    packets_dst_matched: int = 0
+
+
+# =============================================================================
+# QUIC Types
+# =============================================================================
+
+
+@dataclass
+class QuicReal:
+    """QUIC server ID to backend mapping."""
+
+    address: str
+    id: int
+
+
+@dataclass
+class QuicPacketStats:
+    """Per-CPU aggregated QUIC stats."""
+
+    ch_routed: int = 0
+    cid_initial: int = 0
+    cid_invalid_server_id: int = 0
+    cid_invalid_server_id_sample: int = 0
+    cid_routed: int = 0
+    cid_unknown_real_dropped: int = 0
+    cid_v0: int = 0
+    cid_v1: int = 0
+    cid_v2: int = 0
+    cid_v3: int = 0
+    dst_match_in_lru: int = 0
+    dst_mismatch_in_lru: int = 0
+    dst_not_found_in_lru: int = 0
+
+
+# =============================================================================
+# LRU Analysis Types
+# =============================================================================
+
+
+@dataclass
+class LruEntry:
+    flow: FlowKey
+    real_index: int
+    atime: int
+    atime_delta_sec: float
+    cpu: int
+
+
+@dataclass
+class LruEntries:
+    entries: list[LruEntry]
+    error: str = ""
+
+
+@dataclass
+class VipLruStats:
+    entry_count: int = 0
+    stale_real_count: int = 0
+    atime_zero_count: int = 0
+    atime_under_30s_count: int = 0
+    atime_30_to_60s_count: int = 0
+    atime_over_60s_count: int = 0
+
+
+@dataclass
+class LruAnalysis:
+    total_entries: int = 0
+    per_vip: dict[str, VipLruStats] = field(default_factory=dict)
+    error: str = ""
+
+
+@dataclass
+class PurgeResponse:
+    deleted_count: int = 0
+    error: str = ""
+
+
+# =============================================================================
 # High-Level Control Plane Types
 # =============================================================================
 
