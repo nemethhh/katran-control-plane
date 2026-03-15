@@ -65,7 +65,7 @@ for i in $(seq 1 60); do
 done
 
 # Wait for backends
-for backend in katran-e2e-backend-1 katran-e2e-backend-2; do
+for backend in katran-e2e-backend-1 katran-e2e-backend-2 katran-e2e-backend-3 katran-e2e-hc-target; do
     echo -n "  $backend: "
     for i in $(seq 1 20); do
         STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$backend" 2>/dev/null || echo "unknown")
@@ -122,6 +122,10 @@ if [ "$EXIT_CODE" -ne 0 ] || [ "$DEBUG" -eq 1 ]; then
     docker logs katran-e2e-backend-1 2>&1 | tail -10
     echo -e "\n${YELLOW}--- Backend-2 logs ---${NC}"
     docker logs katran-e2e-backend-2 2>&1 | tail -10
+    echo -e "\n${YELLOW}--- Backend-3 logs ---${NC}"
+    docker logs katran-e2e-backend-3 2>&1 | tail -10
+    echo -e "\n${YELLOW}--- HC Target logs ---${NC}"
+    docker logs katran-e2e-hc-target 2>&1 | tail -10
 fi
 
 exit $EXIT_CODE
