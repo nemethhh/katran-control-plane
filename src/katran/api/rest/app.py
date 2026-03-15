@@ -28,6 +28,7 @@ from katran.core.exceptions import (
     ResourceExhaustedError,
     SrcRoutingError,
     VipExistsError,
+    VipNotFoundError,
 )
 from katran.core.logging import get_logger
 from katran.core.types import QuicReal, VipKey
@@ -224,6 +225,7 @@ def get_service(request: Request) -> Any:
 # ---------------------------------------------------------------------------
 
 _KATRAN_ERROR_STATUS: dict[type, int] = {
+    VipNotFoundError: 404,
     VipExistsError: 409,
     RealExistsError: 409,
     ResourceExhaustedError: 507,

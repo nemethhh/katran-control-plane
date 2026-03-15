@@ -194,7 +194,9 @@ class KatranService:
         # Optional maps -- tolerate missing pins (e.g. hc_reals comes from a
         # separate TC healthcheck program that may not be loaded).
         optional_specs: list[tuple[str, Any]] = [
-            ("hc_reals_map", lambda: HcRealsMap(pin_path)),
+            ("hc_reals_map", lambda: HcRealsMap(
+                pin_path, tunnel_based_hc=self.config.tunnel_based_hc,
+            )),
             ("lru_map", lambda: LruMap(pin_path, max_entries=maps_cfg.lru_size)),
         ]
 
