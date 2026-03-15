@@ -294,7 +294,8 @@ def parse_metric_value(content, metric_name, labels=None):
 def send_udp_packets(addr, port, count=20, payload=b"test"):
     """Send UDP datagrams to an address (for QUIC VIP tests)."""
     import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    family = socket.AF_INET6 if ":" in addr else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_DGRAM)
     try:
         for _ in range(count):
             sock.sendto(payload, (addr, port))
@@ -528,7 +529,7 @@ Each test creates a VIP, adds backends, sends traffic, then exercises LRU endpoi
 | test_check_real_is_down | After marking down, POST /api/v1/down-reals/check `{vip, real_index}` | `is_down == true` |
 | test_check_real_not_down | Check without marking | `is_down == false` |
 | test_unmark_real | Mark down, then POST /api/v1/down-reals/remove | 200, then check returns false |
-| test_remove_all_down_for_vip | Mark multiple reals down, POST /api/v1/down-reals/remove-vip `{vip}` | 200, all checks return false |
+| test_remove_all_down_for_vip | Mark multiple reals down, POST /api/v1/down-reals/remove-vip `{address, port, protocol}` (flat VipId, NOT nested `{vip: ...}` — this endpoint takes `VipId` directly, unlike other down-reals endpoints which use `DownRealRequest`) | 200, all checks return false |
 
 **Traffic tests (class TestDownRealsTraffic):**
 
