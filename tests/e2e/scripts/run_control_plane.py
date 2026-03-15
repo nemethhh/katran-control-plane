@@ -15,6 +15,10 @@ def main() -> None:
     host = os.environ.get("KATRAN_API_HOST", "0.0.0.0")
     port = int(os.environ.get("KATRAN_API_PORT", "8080"))
 
+    features_str = os.environ.get("KATRAN_FEATURES", "")
+    feature_list = [f.strip() for f in features_str.split(",") if f.strip()]
+    tunnel_based_hc = os.environ.get("KATRAN_TUNNEL_BASED_HC", "true").lower() == "true"
+
     config = KatranConfig.from_dict(
         {
             "bpf": {"pin_path": pin_path},
@@ -24,12 +28,15 @@ def main() -> None:
                 "ring_size": int(os.environ.get("KATRAN_RING_SIZE", "65537")),
                 "lru_size": int(os.environ.get("KATRAN_LRU_SIZE", "1000")),
             },
+            "features": feature_list,
+            "tunnel_based_hc": tunnel_based_hc,
         }
     )
 
     service = KatranService(config)
     print(f"Starting Katran service (pin_path={pin_path})...", flush=True)
     service.start()
+    print(f"Features enabled: {feature_list or '(none)'}", flush=True)
     print("Katran service started successfully", flush=True)
 
     app = create_app(service)
