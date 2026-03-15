@@ -88,6 +88,94 @@ fi
 
 echo "Pinned maps: $(ls "$PIN_PATH" | tr '\n' ' ')"
 
+# --- Load HC TC-BPF program on egress ---
+HC_PROGRAM="${KATRAN_BPF_PATH:-/app/katran-bpfs}/healthchecking_ipip.bpf.o"
+if [ -f "$HC_PROGRAM" ]; then
+    echo ""
+    echo "=== Loading HC TC-BPF program ==="
+    tc qdisc add dev "$INTERFACE" clsact 2>/dev/null || true
+    if tc filter add dev "$INTERFACE" egress bpf direct-action obj "$HC_PROGRAM" sec tc 2>/dev/null; then
+        echo "  HC program loaded on $INTERFACE egress"
+
+        # Pin HC maps from TC program
+        sleep 1
+        HC_PROG_ID=$(tc filter show dev "$INTERFACE" egress | grep -oP 'id \K[0-9]+' | head -1)
+        if [ -n "$HC_PROG_ID" ]; then
+            HC_MAP_IDS=$(bpftool prog show id "$HC_PROG_ID" 2>/dev/null | grep map_ids | sed 's/.*map_ids //' | tr ',' ' ')
+            echo "  HC program $HC_PROG_ID uses maps: $HC_MAP_IDS"
+
+            for map_name in hc_key_map hc_reals_map hc_ctrl_map hc_pckt_srcs_map \
+                            hc_pckt_macs hc_stats_map per_hckey_stats; do
+                map_id=""
+                for candidate in $(bpftool map list 2>/dev/null | grep -w "name $map_name" | cut -d: -f1); do
+                    for hc_mid in $HC_MAP_IDS; do
+                        if [ "$candidate" = "$hc_mid" ]; then
+                            map_id="$candidate"
+                            break 2
+                        fi
+                    done
+                done
+
+                if [ -n "$map_id" ]; then
+                    bpftool map pin id "$map_id" "${PIN_PATH}/${map_name}" 2>/dev/null || true
+                    echo "  Pinned HC: $map_name (id=$map_id)"
+                else
+                    echo "  Skip HC:   $map_name (not found)"
+                fi
+            done
+        else
+            echo "  Warning: Could not find HC program ID for map pinning"
+        fi
+    else
+        echo "  Warning: HC program failed to load (may not be available)"
+    fi
+else
+    echo "  HC program not found at $HC_PROGRAM, skipping"
+fi
+
+# --- Pin additional XDP feature maps ---
+echo ""
+echo "=== Pinning XDP feature maps ==="
+if [ -n "$PROG_ID" ]; then
+    for map_name in lpm_src_v4 lpm_src_v6 decap_dst server_id_map pckt_srcs \
+                    reals_stats lru_miss_stats quic_stats_map \
+                    decap_vip_stats server_id_stats; do
+        map_id=""
+        for candidate in $(bpftool map list 2>/dev/null | grep -w "name $map_name" | cut -d: -f1); do
+            for prog_mid in $PROG_MAP_IDS; do
+                if [ "$candidate" = "$prog_mid" ]; then
+                    map_id="$candidate"
+                    break 2
+                fi
+            done
+        done
+
+        if [ -n "$map_id" ]; then
+            bpftool map pin id "$map_id" "${PIN_PATH}/${map_name}" 2>/dev/null || true
+            echo "  Pinned: $map_name (id=$map_id)"
+        fi
+    done
+fi
+
+echo "All pinned maps: $(ls "$PIN_PATH" 2>/dev/null | tr '\n' ' ')"
+
+# Verify critical maps are pinned
+echo ""
+echo "=== Verifying required maps ==="
+REQUIRED_MAPS="vip_map reals ch_rings stats ctl_array"
+ALL_OK=true
+for map in $REQUIRED_MAPS; do
+    if [ ! -f "$PIN_PATH/$map" ]; then
+        echo "  FATAL: Required map $map not pinned"
+        ALL_OK=false
+    fi
+done
+if [ "$ALL_OK" = "false" ]; then
+    echo "FATAL: Missing required maps, cannot start control plane"
+    exit 1
+fi
+echo "  All required maps verified"
+
 # Discover and write gateway MAC to ctl_array[0]
 # The XDP program reads ctl_array[0] to get the destination MAC for XDP_TX
 echo "Discovering gateway MAC..."
