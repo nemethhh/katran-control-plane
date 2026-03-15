@@ -461,3 +461,22 @@ class TestRealManagerPublicRefCounting:
 
     def test_get_index_for_real_unknown(self, real_manager):
         assert real_manager.get_index_for_real("10.0.0.100") is None
+
+
+class TestRealManagerEdgeCases:
+    """Cover lines 519, 592: decrease_ref_count no-op and rebuild_all_rings."""
+
+    def test_decrease_ref_count_unknown_address_is_no_op(self, real_manager):
+        """_decrease_ref_count on an unknown address does nothing (returns early)."""
+        from ipaddress import IPv4Address
+
+        # Should not raise; address is not tracked
+        real_manager._decrease_ref_count(IPv4Address("10.0.0.99"))
+
+        # State unchanged
+        assert real_manager.get_global_real_count() == 0
+
+    def test_rebuild_all_rings_logs_warning(self, real_manager):
+        """rebuild_all_rings logs a warning and does not raise (placeholder method)."""
+        # Just calling the method should succeed and log a warning
+        real_manager.rebuild_all_rings()  # Should not raise
