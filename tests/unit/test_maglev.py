@@ -533,3 +533,26 @@ class TestRingRebuildOptimization:
 
         # Results should match
         assert new_ring_rebuild == new_ring_separate
+
+
+class TestMaglevDistributionEdgeCases:
+    """Cover lines 370, 389: distribution methods when ring is not built or empty."""
+
+    def test_get_distribution_ring_not_built_returns_empty_dict(self):
+        """get_distribution returns {} when ring hasn't been built yet."""
+        ring = MaglevHashRing(ring_size=7)
+
+        result = ring.get_distribution()
+
+        assert result == {}
+
+    def test_get_distribution_percentage_empty_ring_returns_empty_dict(self):
+        """get_distribution_percentage returns {} when ring is built with no endpoints."""
+        ring = MaglevHashRing(ring_size=7)
+        ring.build([])  # Empty ring — all slots are -1
+
+        result = ring.get_distribution_percentage()
+
+        # get_distribution returns {} for empty ring (all -1 slots filtered out),
+        # so total == 0, returns {}
+        assert result == {}
