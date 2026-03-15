@@ -12,12 +12,28 @@ from katran.bpf import (
     BpfMap,
     ChRingsMap,
     CtlArray,
+    DecapDstMap,
+    DecapVipStatsMap,
+    HcCtrlMap,
+    HcKeyMap,
+    HcPcktMacsMap,
+    HcPcktSrcsMap,
     HcRealsMap,
+    HcStatsMap,
+    LpmSrcV4Map,
+    LpmSrcV6Map,
     LruMap,
+    LruMissStatsMap,
     PcktSrcsMap,
+    PerHcKeyStatsMap,
+    QuicStatsMap,
     RealsMap,
+    RealsStatsMap,
+    ServerIdMap,
+    ServerIdStatsMap,
     StatsMap,
     VipMap,
+    VipToDownRealsMap,
 )
 from katran.core.config import KatranConfig
 from katran.core.constants import (
@@ -184,6 +200,38 @@ class KatranService:
             except Exception:
                 logger.info("Optional map %s unavailable, skipping", attr)
 
+    def _open_feature_maps(self) -> None:
+        """Open feature-specific BPF maps gated by config.features and map availability."""
+        pin = self.config.bpf.pin_path
+        cfg = self.config.maps
+        features = KatranFeature(self.config.features)
+
+        if features & KatranFeature.SRC_ROUTING:
+            self._lpm_src_v4_map = self._try_open(LpmSrcV4Map, pin, max_entries=cfg.max_lpm_src)
+            self._lpm_src_v6_map = self._try_open(LpmSrcV6Map, pin, max_entries=cfg.max_lpm_src)
+
+        if features & KatranFeature.INLINE_DECAP:
+            self._decap_dst_map = self._try_open(DecapDstMap, pin)
+
+        self._server_id_map = self._try_open(ServerIdMap, pin)
+        self._pckt_srcs_map = self._try_open(PcktSrcsMap, pin)
+
+        self._reals_stats_map = self._try_open(RealsStatsMap, pin, max_reals=cfg.max_reals)
+        self._lru_miss_stats_map = self._try_open(LruMissStatsMap, pin, max_reals=cfg.max_reals)
+        self._quic_stats_map = self._try_open(QuicStatsMap, pin)
+        self._decap_vip_stats_map = self._try_open(DecapVipStatsMap, pin, max_vips=cfg.max_vips)
+        self._server_id_stats_map = self._try_open(ServerIdStatsMap, pin)
+
+        if features & KatranFeature.DIRECT_HEALTHCHECKING:
+            self._hc_key_map = self._try_open(HcKeyMap, pin)
+            self._hc_ctrl_map = self._try_open(HcCtrlMap, pin)
+            self._hc_pckt_srcs_map = self._try_open(HcPcktSrcsMap, pin)
+            self._hc_pckt_macs_map = self._try_open(HcPcktMacsMap, pin)
+            self._hc_stats_map = self._try_open(HcStatsMap, pin)
+            self._per_hckey_stats_map = self._try_open(PerHcKeyStatsMap, pin)
+
+        self._vip_to_down_reals_map = self._try_open(VipToDownRealsMap, pin)
+
     def _initialize_managers(self) -> None:
         """Create VipManager and RealManager with correct signatures."""
         assert self.vip_map is not None
@@ -207,6 +255,97 @@ class KatranService:
 
         logger.info("Managers initialized")
 
+    def _initialize_feature_managers(self) -> None:
+        """Instantiate feature managers with their opened maps."""
+        assert self.real_manager is not None
+        assert self.vip_manager is not None
+        cfg = self.config.maps
+        features = KatranFeature(self.config.features)
+
+        if (
+            features & KatranFeature.SRC_ROUTING
+            and getattr(self, "_lpm_src_v4_map", None) is not None
+            and getattr(self, "_lpm_src_v6_map", None) is not None
+        ):
+            self._src_routing_manager = SrcRoutingManager(
+                self._lpm_src_v4_map,
+                self._lpm_src_v6_map,
+                self.real_manager,
+                max_lpm_src=cfg.max_lpm_src,
+            )
+            logger.info("SrcRoutingManager initialized")
+
+        if (
+            features & KatranFeature.INLINE_DECAP
+            and getattr(self, "_decap_dst_map", None) is not None
+        ):
+            self._decap_manager = DecapManager(
+                self._decap_dst_map,
+                max_decap_dst=cfg.max_decap_dst,
+            )
+            logger.info("DecapManager initialized")
+
+        if getattr(self, "_server_id_map", None) is not None:
+            self._quic_manager = QuicManager(
+                self._server_id_map,
+                self.real_manager,
+                max_server_ids=cfg.max_quic_reals,
+            )
+            logger.info("QuicManager initialized")
+
+        if (
+            features & KatranFeature.DIRECT_HEALTHCHECKING
+            and getattr(self, "_hc_key_map", None) is not None
+            and self.hc_reals_map is not None
+            and getattr(self, "_hc_ctrl_map", None) is not None
+            and getattr(self, "_hc_pckt_srcs_map", None) is not None
+            and getattr(self, "_hc_pckt_macs_map", None) is not None
+            and getattr(self, "_hc_stats_map", None) is not None
+            and getattr(self, "_per_hckey_stats_map", None) is not None
+        ):
+            self._hc_manager = HealthCheckManager(
+                hc_reals_map=self.hc_reals_map,
+                hc_key_map=self._hc_key_map,
+                hc_ctrl_map=self._hc_ctrl_map,
+                hc_pckt_srcs_map=self._hc_pckt_srcs_map,
+                hc_pckt_macs=self._hc_pckt_macs_map,
+                hc_stats_map=self._hc_stats_map,
+                per_hckey_stats=self._per_hckey_stats_map,
+                max_vips=cfg.max_vips,
+                tunnel_based_hc=self.config.tunnel_based_hc,
+            )
+            logger.info("HealthCheckManager initialized")
+
+        if self.lru_map is not None:
+            self._lru_manager = LruManager(
+                fallback_lru=self.lru_map,
+                per_cpu_lru_fds=None,
+                lru_miss_stats_map=getattr(self, "_lru_miss_stats_map", None),
+                vip_manager=self.vip_manager,
+                real_manager=self.real_manager,
+            )
+            logger.info("LruManager initialized")
+
+        if getattr(self, "_vip_to_down_reals_map", None) is not None:
+            self._down_real_manager = DownRealManager(
+                self._vip_to_down_reals_map,
+                self.vip_manager,
+            )
+            logger.info("DownRealManager initialized")
+
+        self._stats_manager = StatsManager(
+            stats_map=self.stats_map,
+            max_vips=cfg.max_vips,
+            reals_stats_map=getattr(self, "_reals_stats_map", None),
+            lru_miss_stats_map=getattr(self, "_lru_miss_stats_map", None),
+            quic_stats_map=getattr(self, "_quic_stats_map", None),
+            decap_vip_stats_map=getattr(self, "_decap_vip_stats_map", None),
+            server_id_stats_map=getattr(self, "_server_id_stats_map", None),
+            hc_stats_map=getattr(self, "_hc_stats_map", None),
+            per_hckey_stats=getattr(self, "_per_hckey_stats_map", None),
+        )
+        logger.info("StatsManager initialized")
+
     def _close_maps(self) -> None:
         """Close all opened maps."""
         for m in reversed(self._opened_maps):
@@ -224,7 +363,9 @@ class KatranService:
         logger.info("Starting Katran service...")
         try:
             self._open_maps()
+            self._open_feature_maps()
             self._initialize_managers()
+            self._initialize_feature_managers()
             self._running = True
             logger.info("Katran service started")
         except Exception:
