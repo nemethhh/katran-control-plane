@@ -1,5 +1,6 @@
 """E2E tests for down reals feature — API CRUD and traffic avoidance."""
 
+import socket
 import time
 
 import pytest
@@ -7,7 +8,6 @@ from helpers import (
     add_backend,
     parse_metric_value,
     remove_backend,
-    send_udp_packets,
     setup_vip,
     teardown_vip,
 )
@@ -175,25 +175,38 @@ class TestDownRealsTraffic:
         udp_vip_id = {"address": VIP, "port": 80, "protocol": "udp"}
         _setup_udp_vip(api_client, VIP)
         resp1 = add_backend(api_client, VIP, backend_1_addr, protocol="udp")
-        add_backend(api_client, VIP, backend_2_addr, protocol="udp")
+        resp2 = add_backend(api_client, VIP, backend_2_addr, protocol="udp")
         idx1 = resp1["index"] if resp1 else 0
+        idx2 = resp2["index"] if resp2 else 1
         time.sleep(2)
 
+        # Use a SINGLE persistent socket so both batches share the same
+        # 5-tuple (same ephemeral source port).  The BPF down-real check
+        # only fires on LRU *hits* — a new source port would miss the LRU.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             # Send UDP traffic to populate LRU entries
-            send_udp_packets(VIP, port=80, count=50)
+            for _ in range(50):
+                sock.sendto(b"test", (VIP, 80))
             time.sleep(1)
 
-            # Mark backend-1 as down
+            # Mark BOTH backends as down.  CH hashing is deterministic per
+            # 5-tuple so we don't know which backend the flow landed on.
+            # Marking both guarantees the down-real check fires on LRU hit.
             api_client.post(
                 "/api/v1/down-reals/add",
                 json={"vip": udp_vip_id, "real_index": idx1},
             )
+            api_client.post(
+                "/api/v1/down-reals/add",
+                json={"vip": udp_vip_id, "real_index": idx2},
+            )
             time.sleep(1)
 
-            # Send more UDP traffic — BPF should detect down real and
-            # invalidate LRU entries, incrementing the migration counter
-            send_udp_packets(VIP, port=80, count=50)
+            # Send more UDP traffic with the SAME socket — BPF should
+            # detect down real on LRU hit and increment the migration counter
+            for _ in range(50):
+                sock.sendto(b"test", (VIP, 80))
             time.sleep(1)
 
             resp = api_client.get("/metrics/")
@@ -205,9 +218,14 @@ class TestDownRealsTraffic:
                 "Expected UDP flow migration counter to increment when down real is hit"
             )
         finally:
+            sock.close()
             api_client.post(
                 "/api/v1/down-reals/remove",
                 json={"vip": udp_vip_id, "real_index": idx1},
+            )
+            api_client.post(
+                "/api/v1/down-reals/remove",
+                json={"vip": udp_vip_id, "real_index": idx2},
             )
             remove_backend(api_client, VIP, backend_2_addr, protocol="udp")
             remove_backend(api_client, VIP, backend_1_addr, protocol="udp")

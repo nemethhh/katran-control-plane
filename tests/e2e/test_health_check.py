@@ -128,12 +128,23 @@ class TestHealthCheckAPI:
 class TestHealthCheckTraffic:
     """Probe generation and capture tests using hc-target container."""
 
+    def _get_network_info(self, api_client):
+        """Discover the LB container's interface info for HC configuration."""
+        resp = api_client.get("/debug/network-info")
+        assert resp.status_code == 200, f"network-info failed: {resp.text}"
+        return resp.json()
+
     def _configure_hc_full(self, api_client, hc_target_addr):
         """Set up all HC configuration needed for probe generation."""
+        info = self._get_network_info(api_client)
+        ifindex = info.get("ifindex", 2)
+        src_mac = info.get("mac", "02:42:0a:c8:00:0a")
+        gw_mac = info.get("gateway_mac", "02:42:0a:c8:00:01")
+
         api_client.post("/api/v1/hc/src-ip", json={"address": "10.200.0.10"})
-        api_client.post("/api/v1/hc/src-mac", json={"mac": "02:42:0a:c8:00:0a"})
-        api_client.post("/api/v1/hc/dst-mac", json={"mac": "02:42:0a:c8:00:01"})
-        api_client.post("/api/v1/hc/interface", json={"ifindex": 2})
+        api_client.post("/api/v1/hc/src-mac", json={"mac": src_mac})
+        api_client.post("/api/v1/hc/dst-mac", json={"mac": gw_mac})
+        api_client.post("/api/v1/hc/interface", json={"ifindex": ifindex})
         api_client.post(
             "/api/v1/hc/key/add",
             json={"address": VIP, "port": 80, "protocol": "tcp"},
@@ -152,10 +163,11 @@ class TestHealthCheckTraffic:
 
     def _trigger_probe(self, api_client, somark, dst_addr):
         """Trigger a SO_MARK-tagged packet via the LB's debug endpoint."""
-        api_client.post(
+        resp = api_client.post(
             "/debug/trigger-probe",
             json={"somark": somark, "dst": dst_addr},
         )
+        assert resp.status_code == 200, f"trigger-probe failed: {resp.text}"
 
     def test_hc_probes_generated(self, api_client, hc_client, hc_target_addr):
         self._configure_hc_full(api_client, hc_target_addr)
@@ -181,16 +193,28 @@ class TestHealthCheckTraffic:
                 if probes:
                     break
 
-            assert len(probes) > 0, "No HC probes captured by hc-target"
+            if not probes:
+                # Collect HC stats for diagnostic info
+                stats_resp = api_client.get("/api/v1/hc/stats")
+                hc_stats = stats_resp.json() if stats_resp.status_code == 200 else {}
+                raise AssertionError(
+                    f"No HC probes captured by hc-target. "
+                    f"HC BPF stats: {hc_stats}"
+                )
         finally:
             self._cleanup_hc(api_client)
 
     def test_hc_probes_ipv6(self, api_client, hc_client, hc_target_addr6):
         """Verify HC probes with IPv6 inner dst are captured."""
+        info = self._get_network_info(api_client)
+        ifindex = info.get("ifindex", 2)
+        src_mac = info.get("mac", "02:42:0a:c8:00:0a")
+        gw_mac = info.get("gateway_mac", "02:42:0a:c8:00:01")
+
         api_client.post("/api/v1/hc/src-ip", json={"address": "fd00:200::10"})
-        api_client.post("/api/v1/hc/src-mac", json={"mac": "02:42:0a:c8:00:0a"})
-        api_client.post("/api/v1/hc/dst-mac", json={"mac": "02:42:0a:c8:00:01"})
-        api_client.post("/api/v1/hc/interface", json={"ifindex": 2})
+        api_client.post("/api/v1/hc/src-mac", json={"mac": src_mac})
+        api_client.post("/api/v1/hc/dst-mac", json={"mac": gw_mac})
+        api_client.post("/api/v1/hc/interface", json={"ifindex": ifindex})
         api_client.post(
             "/api/v1/hc/key/add",
             json={"address": "fd00:200::43", "port": 80, "protocol": "tcp"},

@@ -9,6 +9,7 @@ addresses with colons.
 from __future__ import annotations
 
 import dataclasses
+import os
 from ipaddress import ip_address
 from typing import Any, Optional
 
@@ -698,6 +699,69 @@ def create_app(service: Any = None) -> FastAPI:
         }
 
     # --- Debug endpoints --------------------------------------------------
+
+    @app.get("/debug/network-info")
+    async def network_info() -> dict[str, Any]:
+        """Return the container's main interface info for E2E test configuration."""
+        import fcntl
+        import socket as _socket
+        import struct as _struct
+
+        iface = os.environ.get("KATRAN_INTERFACE", "eth0").encode()
+        result: dict[str, Any] = {"interface": iface.decode()}
+
+        # Get ifindex
+        try:
+            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+            # SIOCGIFINDEX = 0x8933
+            ifr = _struct.pack("256s", iface[:15])
+            res = fcntl.ioctl(sock.fileno(), 0x8933, ifr)
+            result["ifindex"] = _struct.unpack("I", res[16:20])[0]
+        except Exception as e:
+            result["ifindex_error"] = str(e)
+        finally:
+            sock.close()
+
+        # Get interface MAC
+        try:
+            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+            # SIOCGIFHWADDR = 0x8927
+            ifr = _struct.pack("256s", iface[:15])
+            res = fcntl.ioctl(sock.fileno(), 0x8927, ifr)
+            mac_bytes = res[18:24]
+            result["mac"] = ":".join(f"{b:02x}" for b in mac_bytes)
+        except Exception as e:
+            result["mac_error"] = str(e)
+        finally:
+            sock.close()
+
+        # Get gateway MAC from ARP table
+        try:
+            import subprocess
+
+            gw_ip = None
+            route_out = subprocess.check_output(["ip", "route"], text=True)
+            for line in route_out.splitlines():
+                if line.startswith("default"):
+                    parts = line.split()
+                    gw_ip = parts[parts.index("via") + 1] if "via" in parts else None
+                    break
+
+            if gw_ip:
+                result["gateway_ip"] = gw_ip
+                neigh_out = subprocess.check_output(
+                    ["ip", "neigh", "show", gw_ip], text=True
+                ).strip()
+                if neigh_out:
+                    parts = neigh_out.split()
+                    if "lladdr" in parts:
+                        result["gateway_mac"] = parts[parts.index("lladdr") + 1]
+                    elif len(parts) >= 5:
+                        result["gateway_mac"] = parts[4]
+        except Exception as e:
+            result["gateway_mac_error"] = str(e)
+
+        return result
 
     @app.post("/debug/trigger-probe")
     async def trigger_probe(body: dict) -> dict[str, Any]:
