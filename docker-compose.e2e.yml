@@ -34,6 +34,8 @@ services:
       - KATRAN_INTERFACE=eth0
       - KATRAN_API_HOST=0.0.0.0
       - KATRAN_API_PORT=8080
+      - KATRAN_FEATURES=src_routing,inline_decap,direct_healthchecking
+      - KATRAN_TUNNEL_BASED_HC=true
     entrypoint: ["/bin/bash", "/app/tests/e2e/scripts/lb-entrypoint.sh"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
@@ -51,6 +53,7 @@ services:
     privileged: true
     cap_add:
       - NET_ADMIN
+      - NET_RAW
     volumes:
       - /lib/modules:/lib/modules:ro
     networks:
@@ -63,6 +66,8 @@ services:
       - VIP_ADDR=10.200.0.10
       - VIP_ADDR6=fd00:200::10
       - HTTP_PORT=80
+      - EXTRA_VIP_ADDRS=10.200.0.40 10.200.0.41 10.200.0.42 10.200.0.43 10.200.0.44 10.200.0.45 10.200.0.46 10.200.0.47 10.200.0.48
+      - EXTRA_VIP_ADDRS6=fd00:200::40 fd00:200::41 fd00:200::42 fd00:200::43 fd00:200::44 fd00:200::45 fd00:200::46 fd00:200::47 fd00:200::48
     entrypoint: ["/bin/bash", "/app/scripts/backend-entrypoint.sh"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
@@ -80,6 +85,7 @@ services:
     privileged: true
     cap_add:
       - NET_ADMIN
+      - NET_RAW
     volumes:
       - /lib/modules:/lib/modules:ro
     networks:
@@ -92,9 +98,65 @@ services:
       - VIP_ADDR=10.200.0.10
       - VIP_ADDR6=fd00:200::10
       - HTTP_PORT=80
+      - EXTRA_VIP_ADDRS=10.200.0.40 10.200.0.41 10.200.0.42 10.200.0.43 10.200.0.44 10.200.0.45 10.200.0.46 10.200.0.47 10.200.0.48
+      - EXTRA_VIP_ADDRS6=fd00:200::40 fd00:200::41 fd00:200::42 fd00:200::43 fd00:200::44 fd00:200::45 fd00:200::46 fd00:200::47 fd00:200::48
     entrypoint: ["/bin/bash", "/app/scripts/backend-entrypoint.sh"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  # Backend 3: Source routing traffic target
+  backend-3:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.backend
+    container_name: katran-e2e-backend-3
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - /lib/modules:/lib/modules:ro
+    networks:
+      katran-e2e-net:
+        ipv4_address: 10.200.0.22
+        ipv6_address: "fd00:200::22"
+    environment:
+      - BACKEND_NAME=backend-3
+      - BACKEND_ADDR=10.200.0.22
+      - VIP_ADDR=10.200.0.10
+      - VIP_ADDR6=fd00:200::10
+      - HTTP_PORT=80
+      - EXTRA_VIP_ADDRS=10.200.0.40 10.200.0.41 10.200.0.42 10.200.0.43 10.200.0.44 10.200.0.45 10.200.0.46 10.200.0.47 10.200.0.48
+      - EXTRA_VIP_ADDRS6=fd00:200::40 fd00:200::41 fd00:200::42 fd00:200::43 fd00:200::44 fd00:200::45 fd00:200::46 fd00:200::47 fd00:200::48
+    entrypoint: ["/bin/bash", "/app/scripts/backend-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  # HC target: captures IPIP HC probes for test verification
+  hc-target:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.backend
+    container_name: katran-e2e-hc-target
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      katran-e2e-net:
+        ipv4_address: 10.200.0.30
+        ipv6_address: "fd00:200::30"
+    entrypoint: ["python3", "/app/scripts/hc-target-server.py"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 3s
       timeout: 2s
       retries: 10
@@ -119,12 +181,23 @@ services:
       - BACKEND_1_ADDR6=fd00:200::20
       - BACKEND_2_ADDR=10.200.0.21
       - BACKEND_2_ADDR6=fd00:200::21
+      - BACKEND_3_ADDR=10.200.0.22
+      - BACKEND_3_ADDR6=fd00:200::22
+      - HC_TARGET_ADDR=10.200.0.30
+      - HC_TARGET_ADDR6=fd00:200::30
+      - HC_TARGET_URL=http://hc-target:8080
+      - TEST_CLIENT_ADDR=10.200.0.100
+      - TEST_CLIENT_ADDR6=fd00:200::100
     depends_on:
       katran-lb:
         condition: service_healthy
       backend-1:
         condition: service_healthy
       backend-2:
+        condition: service_healthy
+      backend-3:
+        condition: service_healthy
+      hc-target:
         condition: service_healthy
     command: ["sleep", "infinity"]
 
