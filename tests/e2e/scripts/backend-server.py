@@ -19,6 +19,36 @@ HTTP_PORT = int(os.environ.get("HTTP_PORT", "80"))
 request_count = 0
 count_lock = threading.Lock()
 
+# Tunnel outer-src tracking for encap source IP verification
+last_tunnel_src = {"outer_src": None, "last_seen": 0.0}
+tunnel_lock = threading.Lock()
+
+
+def _sniff_tunnel():
+    """Background thread: sniff IPIP packets on tunl0, record outer source IP."""
+    import struct
+    import time
+
+    try:
+        raw = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0800))
+        raw.bind(("tunl0", 0))
+    except OSError:
+        print("Warning: Could not bind to tunl0 for tunnel sniffing", flush=True)
+        return
+
+    while True:
+        try:
+            data, _ = raw.recvfrom(65535)
+            if len(data) < 20:
+                continue
+            # Parse outer IPv4 header source address (bytes 12-16)
+            src_ip = socket.inet_ntoa(data[12:16])
+            with tunnel_lock:
+                last_tunnel_src["outer_src"] = src_ip
+                last_tunnel_src["last_seen"] = time.time()
+        except Exception:
+            pass
+
 
 class BackendHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -32,6 +62,12 @@ class BackendHandler(BaseHTTPRequestHandler):
             with count_lock:
                 count = request_count
             self._respond(200, {"backend": BACKEND_NAME, "requests": count})
+            return
+
+        if self.path == "/tunnel-info":
+            with tunnel_lock:
+                info = dict(last_tunnel_src)
+            self._respond(200, info)
             return
 
         # Default: identify this backend
@@ -73,6 +109,8 @@ class DualStackHTTPServer(HTTPServer):
 def main():
     server = DualStackHTTPServer(("::", HTTP_PORT), BackendHandler)
     print(f"Backend {BACKEND_NAME} listening on [::]:{HTTP_PORT} (dual-stack)", flush=True)
+    sniffer = threading.Thread(target=_sniff_tunnel, daemon=True)
+    sniffer.start()
     server.serve_forever()
 
 
