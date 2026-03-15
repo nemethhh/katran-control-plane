@@ -26,7 +26,6 @@ tunnel_lock = threading.Lock()
 
 def _sniff_tunnel():
     """Background thread: sniff IPIP packets on tunl0, record outer source IP."""
-    import struct
     import time
 
     try:

@@ -3,7 +3,6 @@
 import time
 
 import pytest
-
 from conftest import (
     add_backend,
     parse_metric_value,
