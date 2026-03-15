@@ -685,6 +685,30 @@ def create_app(service: Any = None) -> FastAPI:
             "per_vip": {k: dataclasses.asdict(v) for k, v in result.per_vip.items()},
         }
 
+    # --- Debug endpoints --------------------------------------------------
+
+    @app.post("/debug/trigger-probe")
+    async def trigger_probe(body: dict) -> dict[str, Any]:
+        """Send a SO_MARK-tagged UDP packet to trigger TC-BPF HC probe rewriting.
+
+        Only useful in E2E test environments where TC-BPF HC program is loaded.
+        """
+        import socket as _socket
+
+        somark = int(body["somark"])
+        dst_addr = str(body["dst"])
+        dst_port = int(body.get("port", 9999))
+
+        family = _socket.AF_INET6 if ":" in dst_addr else _socket.AF_INET
+        sock = _socket.socket(family, _socket.SOCK_DGRAM)
+        try:
+            sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_MARK, somark)
+            sock.sendto(b"hc-probe", (dst_addr, dst_port))
+        finally:
+            sock.close()
+
+        return {"status": "sent", "somark": somark, "dst": dst_addr}
+
     # --- Down reals endpoints ---------------------------------------------
 
     @app.post("/api/v1/down-reals/add")
