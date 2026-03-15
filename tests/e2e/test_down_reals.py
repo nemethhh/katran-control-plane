@@ -3,7 +3,7 @@
 import time
 
 import pytest
-from conftest import (
+from helpers import (
     add_backend,
     remove_backend,
     send_requests,
@@ -14,6 +14,7 @@ from conftest import (
 VIP = "10.200.0.44"
 
 
+@pytest.mark.usefixtures("requires_down_reals")
 class TestDownRealsAPI:
     """API-level down real CRUD tests."""
 
@@ -159,10 +160,10 @@ class TestDownRealsAPI:
             teardown_vip(api_client, VIP)
 
 
+@pytest.mark.usefixtures("requires_down_reals")
 class TestDownRealsTraffic:
     """Traffic tests verifying down real avoidance by XDP program."""
 
-    @pytest.mark.xfail(reason="BPF program may not consult VipToDownRealsMap")
     def test_down_real_traffic_avoidance(
         self, api_client, backend_1_addr, backend_2_addr
     ):

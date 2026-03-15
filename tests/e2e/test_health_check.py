@@ -2,9 +2,12 @@
 
 import time
 
+import pytest
+
 VIP = "10.200.0.43"
 
 
+@pytest.mark.usefixtures("requires_hc")
 class TestHealthCheckAPI:
     """API-level health check CRUD tests."""
 
@@ -121,6 +124,7 @@ class TestHealthCheckAPI:
             )
 
 
+@pytest.mark.usefixtures("requires_hc")
 class TestHealthCheckTraffic:
     """Probe generation and capture tests using hc-target container."""
 
@@ -156,20 +160,26 @@ class TestHealthCheckTraffic:
     def test_hc_probes_generated(self, api_client, hc_client, hc_target_addr):
         self._configure_hc_full(api_client, hc_target_addr)
         hc_client.post("/probes/reset")
+        time.sleep(2)  # Allow HC BPF config to settle
 
         try:
-            for _ in range(5):
-                self._trigger_probe(api_client, 200, hc_target_addr)
-                time.sleep(1)
-
+            # Send probes in multiple rounds to handle timing variability
             probes = []
-            for _ in range(15):
-                resp = hc_client.get("/probes")
-                data = resp.json()
-                if data["count"] > 0:
-                    probes = data["probes"]
+            for _attempt in range(3):
+                for _ in range(5):
+                    self._trigger_probe(api_client, 200, hc_target_addr)
+                    time.sleep(0.5)
+
+                for _ in range(10):
+                    resp = hc_client.get("/probes")
+                    data = resp.json()
+                    if data["count"] > 0:
+                        probes = data["probes"]
+                        break
+                    time.sleep(1)
+
+                if probes:
                     break
-                time.sleep(1)
 
             assert len(probes) > 0, "No HC probes captured by hc-target"
         finally:

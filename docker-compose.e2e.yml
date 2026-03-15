@@ -36,6 +36,8 @@ services:
       - KATRAN_API_PORT=8080
       - KATRAN_FEATURES=src_routing,inline_decap,direct_healthchecking
       - KATRAN_TUNNEL_BASED_HC=true
+      - EXTRA_VIP_ADDRS=10.200.0.40 10.200.0.41 10.200.0.42 10.200.0.43 10.200.0.44 10.200.0.45 10.200.0.46 10.200.0.47 10.200.0.48
+      - EXTRA_VIP_ADDRS6=fd00:200::40 fd00:200::41 fd00:200::42 fd00:200::43 fd00:200::44 fd00:200::45 fd00:200::46 fd00:200::47 fd00:200::48
     entrypoint: ["/bin/bash", "/app/tests/e2e/scripts/lb-entrypoint.sh"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]

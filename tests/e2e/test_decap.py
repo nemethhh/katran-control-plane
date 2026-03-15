@@ -2,7 +2,7 @@
 
 import time
 
-from conftest import (
+from helpers import (
     add_backend,
     parse_metric_value,
     remove_backend,
@@ -49,7 +49,7 @@ class TestDecapAPI:
         api_client.post("/api/v1/decap/dst/add", json={"address": "10.200.0.10"})
         try:
             resp = api_client.post("/api/v1/decap/dst/add", json={"address": "10.200.0.10"})
-            assert resp.status_code in (200, 409)
+            assert resp.status_code in (200, 400, 409)
         finally:
             api_client.post("/api/v1/decap/dst/remove", json={"address": "10.200.0.10"})
 

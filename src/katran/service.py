@@ -42,7 +42,10 @@ from katran.core.constants import (
     KatranFeature,
     ModifyAction,
 )
-from katran.core.exceptions import FeatureNotEnabledError
+from katran.core.exceptions import (
+    FeatureNotEnabledError,
+    KatranError,
+)
 from katran.core.logging import get_logger
 from katran.core.types import (
     LbStats,
@@ -130,6 +133,11 @@ class KatranService:
         """Raise FeatureNotEnabledError if the feature is not enabled."""
         if not self.has_feature(feature):
             raise FeatureNotEnabledError(feature.name)
+
+    def _require_manager(self, manager: Any, name: str) -> None:
+        """Raise KatranError if a manager is not initialized."""
+        if manager is None:
+            raise KatranError(f"{name} not available (required BPF maps may not be loaded)")
 
     # -------------------------------------------------------------------------
     # Optional map helper
@@ -401,25 +409,25 @@ class KatranService:
     def add_src_routing_rules(self, srcs: list[str], dst: str) -> int:
         """Add source routing rules. Returns count of failures."""
         self._require_feature(KatranFeature.SRC_ROUTING)
-        assert self._src_routing_manager is not None
+        self._require_manager(self._src_routing_manager, "SrcRoutingManager")
         return self._src_routing_manager.add_rules(srcs, dst)
 
     def del_src_routing_rules(self, srcs: list[str]) -> bool:
         """Delete source routing rules."""
         self._require_feature(KatranFeature.SRC_ROUTING)
-        assert self._src_routing_manager is not None
+        self._require_manager(self._src_routing_manager, "SrcRoutingManager")
         return self._src_routing_manager.del_rules(srcs)
 
     def get_src_routing_rules(self) -> dict[str, str]:
         """Get all source routing rules."""
         self._require_feature(KatranFeature.SRC_ROUTING)
-        assert self._src_routing_manager is not None
+        self._require_manager(self._src_routing_manager, "SrcRoutingManager")
         return self._src_routing_manager.get_rules()
 
     def clear_src_routing_rules(self) -> None:
         """Remove all source routing rules."""
         self._require_feature(KatranFeature.SRC_ROUTING)
-        assert self._src_routing_manager is not None
+        self._require_manager(self._src_routing_manager, "SrcRoutingManager")
         self._src_routing_manager.clear_all()
 
     # =========================================================================
@@ -429,19 +437,19 @@ class KatranService:
     def add_decap_dst(self, dst: str) -> None:
         """Add a decap destination."""
         self._require_feature(KatranFeature.INLINE_DECAP)
-        assert self._decap_manager is not None
+        self._require_manager(self._decap_manager, "DecapManager")
         self._decap_manager.add_dst(dst)
 
     def del_decap_dst(self, dst: str) -> None:
         """Remove a decap destination."""
         self._require_feature(KatranFeature.INLINE_DECAP)
-        assert self._decap_manager is not None
+        self._require_manager(self._decap_manager, "DecapManager")
         self._decap_manager.del_dst(dst)
 
     def get_decap_dsts(self) -> list[str]:
         """List all decap destinations."""
         self._require_feature(KatranFeature.INLINE_DECAP)
-        assert self._decap_manager is not None
+        self._require_manager(self._decap_manager, "DecapManager")
         return self._decap_manager.get_dsts()
 
     # =========================================================================
@@ -452,22 +460,22 @@ class KatranService:
         self, action: ModifyAction, quic_reals: list[QuicReal]
     ) -> int:
         """Modify QUIC server ID mappings. Returns failure count."""
-        assert self._quic_manager is not None
+        self._require_manager(self._quic_manager, "QuicManager")
         return self._quic_manager.modify_mapping(action, quic_reals)
 
     def get_quic_mapping(self) -> list[QuicReal]:
         """Get all QUIC server ID mappings."""
-        assert self._quic_manager is not None
+        self._require_manager(self._quic_manager, "QuicManager")
         return self._quic_manager.get_mapping()
 
     def invalidate_quic_server_ids(self, server_ids: list[int]) -> None:
         """Invalidate QUIC server IDs (write 0 to BPF map)."""
-        assert self._quic_manager is not None
+        self._require_manager(self._quic_manager, "QuicManager")
         self._quic_manager.invalidate_server_ids(server_ids)
 
     def revalidate_quic_server_ids(self, quic_reals: list[QuicReal]) -> None:
         """Revalidate QUIC server IDs (write current index back to BPF map)."""
-        assert self._quic_manager is not None
+        self._require_manager(self._quic_manager, "QuicManager")
         self._quic_manager.revalidate_server_ids(quic_reals)
 
     # =========================================================================
@@ -477,73 +485,73 @@ class KatranService:
     def add_hc_dst(self, somark: int, dst: str) -> None:
         """Register a health-check destination keyed by SO_MARK."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.add_hc_dst(somark, dst)
 
     def del_hc_dst(self, somark: int) -> None:
         """Remove a health-check destination."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.del_hc_dst(somark)
 
     def get_hc_dsts(self) -> dict[int, str]:
         """Return all HC destinations."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         return self._hc_manager.get_hc_dsts()
 
     def add_hc_key(self, key: VipKey) -> int:
         """Allocate an HC key index."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         return self._hc_manager.add_hc_key(key)
 
     def del_hc_key(self, key: VipKey) -> None:
         """Remove an HC key."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.del_hc_key(key)
 
     def get_hc_keys(self) -> dict[VipKey, int]:
         """Return all HC keys and their indices."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         return self._hc_manager.get_hc_keys()
 
     def set_hc_src_ip(self, address: str) -> None:
         """Set the source IP for HC probe packets."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.set_hc_src_ip(address)
 
     def set_hc_src_mac(self, mac: str) -> None:
         """Set the source MAC for HC packets."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.set_hc_src_mac(mac)
 
     def set_hc_dst_mac(self, mac: str) -> None:
         """Set the destination MAC for HC packets."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.set_hc_dst_mac(mac)
 
     def set_hc_interface(self, ifindex: int) -> None:
         """Set the egress interface for HC packets."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         self._hc_manager.set_hc_interface(ifindex)
 
     def get_hc_stats(self) -> Any:
         """Get HC program statistics."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         return self._hc_manager.get_stats()
 
     def get_packets_for_hc_key(self, key: VipKey) -> int:
         """Get packet count for a specific HC key."""
         self._require_feature(KatranFeature.DIRECT_HEALTHCHECKING)
-        assert self._hc_manager is not None
+        self._require_manager(self._hc_manager, "HealthCheckManager")
         return self._hc_manager.get_packets_for_hc_key(key)
 
     # =========================================================================
@@ -565,36 +573,36 @@ class KatranService:
 
     def lru_search(self, vip_key: VipKey, src_ip: str, src_port: int) -> LruEntries:
         """Search for LRU entries matching a specific flow."""
-        assert self._lru_manager is not None
+        self._require_manager(self._lru_manager, "LruManager")
         return self._lru_manager.search(vip_key, src_ip, src_port)
 
     def lru_list(self, vip_key: VipKey, limit: int = 100) -> LruEntries:
         """List LRU entries for a VIP."""
-        assert self._lru_manager is not None
+        self._require_manager(self._lru_manager, "LruManager")
         return self._lru_manager.list(vip_key, limit)
 
     def lru_delete(
         self, vip_key: VipKey, src_ip: str, src_port: int
     ) -> list[str]:
         """Delete LRU entries matching a flow from all maps."""
-        assert self._lru_manager is not None
+        self._require_manager(self._lru_manager, "LruManager")
         return self._lru_manager.delete(vip_key, src_ip, src_port)
 
     def lru_purge_vip(self, vip_key: VipKey) -> PurgeResponse:
         """Remove all LRU entries for a VIP."""
-        assert self._lru_manager is not None
+        self._require_manager(self._lru_manager, "LruManager")
         return self._lru_manager.purge_vip(vip_key)
 
     def lru_purge_vip_for_real(
         self, vip_key: VipKey, real_index: int
     ) -> PurgeResponse:
         """Remove LRU entries for a VIP pointing to a specific backend."""
-        assert self._lru_manager is not None
+        self._require_manager(self._lru_manager, "LruManager")
         return self._lru_manager.purge_vip_for_real(vip_key, real_index)
 
     def lru_analyze(self) -> LruAnalysis:
         """Analyze all LRU entries across all maps."""
-        assert self._lru_manager is not None
+        self._require_manager(self._lru_manager, "LruManager")
         return self._lru_manager.analyze()
 
     # =========================================================================
@@ -603,22 +611,22 @@ class KatranService:
 
     def add_down_real(self, vip_key: VipKey, real_index: int) -> None:
         """Mark a backend as down for a VIP."""
-        assert self._down_real_manager is not None
+        self._require_manager(self._down_real_manager, "DownRealManager")
         self._down_real_manager.add_down_real(vip_key, real_index)
 
     def remove_down_real(self, vip_key: VipKey, real_index: int) -> None:
         """Un-mark a backend as down for a VIP."""
-        assert self._down_real_manager is not None
+        self._require_manager(self._down_real_manager, "DownRealManager")
         self._down_real_manager.remove_real(vip_key, real_index)
 
     def remove_down_reals_vip(self, vip_key: VipKey) -> None:
         """Remove all down-real tracking for a VIP."""
-        assert self._down_real_manager is not None
+        self._require_manager(self._down_real_manager, "DownRealManager")
         self._down_real_manager.remove_vip(vip_key)
 
     def check_down_real(self, vip_key: VipKey, real_index: int) -> bool:
         """Check whether a backend is marked down for a VIP."""
-        assert self._down_real_manager is not None
+        self._require_manager(self._down_real_manager, "DownRealManager")
         return self._down_real_manager.check_real(vip_key, real_index)
 
     # =========================================================================
@@ -627,32 +635,32 @@ class KatranService:
 
     def get_vip_stats(self, vip_num: int) -> LbStats:
         """Get aggregated stats for a single VIP."""
-        assert self._stats_manager is not None
+        self._require_manager(self._stats_manager, "StatsManager")
         return self._stats_manager.get_vip_stats(vip_num)
 
     def get_real_stats(self, real_index: int) -> LbStats:
         """Get aggregated stats for a single backend."""
-        assert self._stats_manager is not None
+        self._require_manager(self._stats_manager, "StatsManager")
         return self._stats_manager.get_real_stats(real_index)
 
     def get_quic_packet_stats(self) -> QuicPacketStats:
         """Get QUIC packet statistics."""
-        assert self._stats_manager is not None
+        self._require_manager(self._stats_manager, "StatsManager")
         return self._stats_manager.get_quic_packet_stats()
 
     def get_hc_program_stats(self) -> Any:
         """Get HC BPF program statistics."""
-        assert self._stats_manager is not None
+        self._require_manager(self._stats_manager, "StatsManager")
         return self._stats_manager.get_hc_program_stats()
 
     def get_per_core_packets_stats(self) -> list[int]:
         """Get XDP total packets broken down by CPU core."""
-        assert self._stats_manager is not None
+        self._require_manager(self._stats_manager, "StatsManager")
         return self._stats_manager.get_per_core_packets_stats()
 
     def get_all_global_stats(self) -> dict[str, dict[str, int]]:
         """Get a summary of key global counters."""
-        assert self._stats_manager is not None
+        self._require_manager(self._stats_manager, "StatsManager")
         sm = self._stats_manager
         lru = sm.get_lru_stats()
         lru_miss = sm.get_lru_miss_stats()

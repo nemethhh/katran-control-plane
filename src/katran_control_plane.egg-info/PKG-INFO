@@ -10,11 +10,12 @@ Classifier: Intended Audience :: System Administrators
 Classifier: License :: OSI Approved :: Apache Software License
 Classifier: Operating System :: POSIX :: Linux
 Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
 Classifier: Topic :: System :: Networking
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: pyroute2>=0.7.0
 Requires-Dist: grpcio>=1.50.0
 Requires-Dist: grpcio-tools>=1.50.0
@@ -33,134 +34,217 @@ Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
 Requires-Dist: httpx>=0.24.0; extra == "dev"
 Requires-Dist: ruff>=0.1.0; extra == "dev"
 Requires-Dist: mypy>=1.5.0; extra == "dev"
+Requires-Dist: types-PyYAML>=6.0; extra == "dev"
 Requires-Dist: black>=23.0.0; extra == "dev"
+Dynamic: license-file
 
 # Katran Control Plane
 
-Python control plane for the Katran L4 XDP load balancer.
+Python control plane for [Katran](https://github.com/facebookincubator/katran), Meta's L4 XDP-based load balancer.
 
-## Overview
+Provides a management layer over Katran's BPF maps, enabling VIP and backend management, consistent hashing, statistics collection, and a REST API -- all from userspace Python.
 
-This package provides a Python-based control plane for managing Katran's BPF maps, VIPs, and backend servers. It implements type-safe wrappers around Katran's BPF data structures and provides high-level APIs for load balancer configuration.
+## Features
 
-## Features (Phase 1 Complete)
+- **VIP management** -- add, remove, and modify virtual IPs with automatic index allocation and BPF map synchronization
+- **Backend pool management** -- reference-counted backend servers with weighted load distribution
+- **Maglev V2 consistent hashing** -- minimal disruption during topology changes with true proportional weight distribution
+- **Source-based routing** -- LPM trie maps for routing traffic by source CIDR prefix
+- **Inline decapsulation** -- manage decap destination addresses for tunneled traffic
+- **QUIC server ID routing** -- map QUIC connection IDs to backend servers with invalidation/revalidation support
+- **Health checking** -- direct health check program coordination (destinations, keys, source IPs/MACs, interface binding)
+- **LRU introspection** -- search, list, purge, and analyze per-CPU and fallback LRU maps
+- **Per-VIP down real tracking** -- HASH_OF_MAPS-based per-VIP backend health state
+- **Feature flags** -- config-driven feature enablement (`KatranFeature` bitflags) with runtime gating
+- **Type-safe BPF map wrappers** -- abstractions for all Katran kernel maps (24 map types including per-CPU stats, LPM tries, and HASH_OF_MAPS)
+- **REST API** -- FastAPI-based HTTP interface with 60+ endpoints covering all features
+- **Prometheus metrics** -- real-time per-VIP, per-real, global, QUIC, and HC statistics scraped directly from BPF maps
+- **IPv4 and IPv6** -- full dual-stack support
+- **YAML configuration** -- flat and nested config formats with Pydantic v2 validation
 
-- **Core Data Structures**: Type-safe Python representations of all Katran BPF structures
-  - `VipKey`: VIP definition (address:port:protocol)
-  - `VipMeta`: VIP metadata (flags, vip_num)
-  - `RealDefinition`: Backend server definition
-  - `FlowKey`: 5-tuple flow key for LRU cache
-  - `LbStats`: Statistics counters
+## Requirements
 
-- **BPF Map Wrappers**: Type-safe access to Katran BPF maps
-  - `VipMap`: VIP hash map management
-  - `RealsMap`: Backend server array management
-  - `ChRingsMap`: Consistent hash rings
-  - `StatsMap`: Per-CPU statistics
-  - `CtlArray`: Control configuration
-  - `HcRealsMap`: Healthcheck routing
-  - `LruMap`: LRU flow cache
+- Linux kernel 5.10+ with BPF support
+- Python 3.11 or 3.12
+- Compiled Katran BPF programs (`.o` files)
 
-- **Index Allocation**: Thread-safe index management for VIPs and backends
+### Tested against
+
+Integration and E2E tests run against pre-compiled BPF programs from [katran-bpf-builder v1.0.0](https://github.com/nemethhh/katran-bpf-builder/releases/tag/v1.0.0) (katran upstream commit [`7d8d7dc1`](https://github.com/facebookincubator/katran/commit/7d8d7dc1b355c481dd9255fcc5c4f32a7cdb40ca), `decap-ipip` flavor).
 
 ## Installation
 
 ```bash
-# Development installation
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-
-# Production installation
-pip install .
 ```
 
-## Requirements
+Or using the Makefile:
 
-- Python 3.11+
-- Linux kernel with BPF support
-- Katran BPF programs loaded
-
-## Quick Start
-
-```python
-from katran.core import VipKey, Protocol, VipFlags, Vip
-from katran.bpf import VipMap, RealsMap, ChRingsMap
-
-# Open BPF maps
-pin_path = "/sys/fs/bpf/katran"
-
-with VipMap(pin_path) as vip_map:
-    # Create a VIP
-    vip = Vip.create(
-        address="10.200.1.1",
-        port=80,
-        protocol="tcp",
-        flags=VipFlags.NONE
-    )
-
-    # Add to BPF map
-    vip_num = vip_map.add_vip(vip)
-    print(f"Added VIP with vip_num={vip_num}")
-
-    # List all VIPs
-    for key in vip_map.list_vips():
-        print(f"  {key}")
+```bash
+make venv
 ```
 
-## Project Structure
+## Configuration
 
+Configuration is loaded from YAML. Two formats are supported -- flat and nested.
+
+Flat format (`config/katran.yaml`):
+
+```yaml
+interface: eth0
+xdp_mode: native
+xdp_program: /usr/share/katran/balancer.o
+pin_path: /sys/fs/bpf/katran
+max_vips: 512
+max_reals: 4096
+ring_size: 65537
+rest_port: 8080
+features:
+  - src_routing
+  - inline_decap
+  - direct_healthchecking
+tunnel_based_hc: true
 ```
-katran-control-plane/
-├── src/katran/
-│   ├── core/           # Core types and constants
-│   │   ├── types.py    # BPF data structures
-│   │   ├── constants.py # Constants matching BPF headers
-│   │   └── exceptions.py
-│   ├── bpf/            # BPF map management
-│   │   ├── map_manager.py  # Base map operations
-│   │   └── maps/       # Individual map wrappers
-│   ├── lb/             # Load balancer logic (Phase 2)
-│   ├── api/            # gRPC and REST APIs (Phase 6)
-│   ├── stats/          # Statistics collection (Phase 4)
-│   └── cli/            # CLI tools (Phase 7)
-├── tests/
-│   ├── unit/           # Unit tests
-│   └── integration/    # Integration tests
-└── config/
-    └── katran.yaml     # Sample configuration
+
+The `features` field accepts either an integer bitmask or a list of feature names. Available features: `src_routing`, `inline_decap`, `introspection`, `gue_encap`, `direct_healthchecking`, `local_delivery_optimization`, `flow_debug`.
+
+Validate configuration with:
+
+```bash
+make check-config
 ```
+
+## Usage
+
+### REST API
+
+The REST API binds to the configured port. All endpoints use `/api/v1/` prefix. IP addresses are passed in request bodies, never URL paths.
+
+**Core:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Service health |
+| GET | `/api/v1/features` | Enabled feature flags |
+| POST | `/api/v1/vips` | Add a VIP |
+| GET | `/api/v1/vips` | List all VIPs |
+| POST | `/api/v1/vips/delete` | Remove a VIP |
+| POST | `/api/v1/backends` | Add backend to a VIP |
+| POST | `/api/v1/backends/delete` | Remove backend |
+| POST | `/api/v1/backends/weight` | Update backend weight |
+
+**Source Routing** (requires `src_routing` feature):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/src-routing/add` | Add source routing rules |
+| POST | `/api/v1/src-routing/remove` | Remove rules |
+| POST | `/api/v1/src-routing/clear` | Clear all rules |
+| GET | `/api/v1/src-routing` | List rules |
+
+**Inline Decap** (requires `inline_decap` feature):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/decap/dst/add` | Add decap destination |
+| POST | `/api/v1/decap/dst/remove` | Remove decap destination |
+| GET | `/api/v1/decap/dst` | List destinations |
+
+**QUIC:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/quic/mapping` | Add/remove server ID mappings |
+| GET | `/api/v1/quic/mapping` | List mappings |
+| POST | `/api/v1/quic/invalidate` | Invalidate server IDs |
+| POST | `/api/v1/quic/revalidate` | Revalidate server IDs |
+
+**Health Checking** (requires `direct_healthchecking` feature):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/hc/dst/add` | Add HC destination |
+| POST | `/api/v1/hc/dst/remove` | Remove HC destination |
+| GET | `/api/v1/hc/dst` | List HC destinations |
+| POST | `/api/v1/hc/key/add` | Add HC key |
+| POST | `/api/v1/hc/key/remove` | Remove HC key |
+| GET | `/api/v1/hc/keys` | List HC keys |
+| POST | `/api/v1/hc/src-ip` | Set HC source IP |
+| POST | `/api/v1/hc/src-mac` | Set HC source MAC |
+| POST | `/api/v1/hc/dst-mac` | Set HC destination MAC |
+| POST | `/api/v1/hc/interface` | Set HC interface |
+| GET | `/api/v1/hc/stats` | HC program stats |
+| GET | `/api/v1/hc/stats/key` | Per-key packet count |
+
+**LRU:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/lru/search` | Search LRU entries |
+| POST | `/api/v1/lru/list` | List LRU entries for VIP |
+| POST | `/api/v1/lru/delete` | Delete LRU entries |
+| POST | `/api/v1/lru/purge-vip` | Purge all entries for VIP |
+| POST | `/api/v1/lru/purge-real` | Purge entries for real |
+| GET | `/api/v1/lru/analyze` | Analyze LRU age distribution |
+
+**Down Reals:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/down-reals/add` | Mark real as down |
+| POST | `/api/v1/down-reals/remove` | Mark real as up |
+| POST | `/api/v1/down-reals/remove-vip` | Clear down reals for VIP |
+| POST | `/api/v1/down-reals/check` | Check if real is down |
+
+**Statistics:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/stats/vip` | Per-VIP stats |
+| GET | `/api/v1/stats/real` | Per-real stats |
+| GET | `/api/v1/stats/global` | All global counters |
+| GET | `/api/v1/stats/quic` | QUIC packet stats |
+| GET | `/api/v1/stats/hc` | HC program stats |
+| GET | `/api/v1/stats/per-cpu` | Per-CPU packet counts |
+| GET | `/metrics` | Prometheus metrics |
+
+### Prometheus Metrics
+
+Metrics are scraped in real time from BPF maps on each request -- no caching, no stale data.
+
+- `katran_vip_packets` / `katran_vip_bytes` -- per-VIP counters
+- `katran_real_packets_total` / `katran_real_bytes_total` -- per-backend counters
+- `katran_stats_*` -- global counters (LRU, XDP actions, new connections)
+- `katran_ch_drops_total`, `katran_encap_failures_total` -- error counters
+- `katran_quic_ch_routed_total`, `katran_quic_cid_routed_total` -- QUIC routing stats
+- `katran_hc_packets_processed_total` -- health check program stats
 
 ## Testing
 
 ```bash
-# Run all tests
-pytest
+# Unit tests
+make unit-test
 
-# Run unit tests only
-pytest tests/unit/
+# Unit tests with coverage
+make unit-test-cov
 
-# Run with coverage
-pytest --cov=katran tests/
+# Integration tests (Docker + real BPF)
+make integration-test
+
+# Multi-container E2E with traffic forwarding
+make e2e-multi
 ```
 
-## Development Status
+## Development
 
-This is Phase 1 of the Katran Control Plane implementation:
-
-- [x] Phase 1: Foundation & BPF Infrastructure
-  - [x] Project structure
-  - [x] Core data structures with serialization
-  - [x] BPF map base manager
-  - [x] Individual map wrappers
-  - [x] Unit tests for serialization
-
-- [ ] Phase 2: Core Load Balancing Logic
-- [ ] Phase 3: XDP/TC Program Loading
-- [ ] Phase 4: Statistics & Monitoring
-- [ ] Phase 5: Healthcheck Management
-- [ ] Phase 6: API Layer
-- [ ] Phase 7: CLI Tool
-- [ ] Phase 8: Production Hardening
+```bash
+make format        # Auto-format code
+make lint          # Ruff + mypy
+make unit-test     # Fast feedback loop
+```
 
 ## License
 
-Apache 2.0 - See LICENSE file for details.
+Apache-2.0

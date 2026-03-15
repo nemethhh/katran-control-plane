@@ -2,7 +2,7 @@
 
 import time
 
-from conftest import (
+from helpers import (
     add_backend,
     parse_metric_value,
     remove_backend,

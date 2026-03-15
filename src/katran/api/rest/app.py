@@ -448,7 +448,12 @@ def create_app(service: Any = None) -> FastAPI:
     def modify_quic_mapping(
         req: QuicMappingRequest, svc: Any = Depends(get_service)
     ) -> dict[str, int]:
-        action = ModifyAction(req.action)
+        try:
+            action = ModifyAction(req.action)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid action: {req.action!r} (use 'add' or 'del')"
+            ) from None
         quic_reals = [QuicReal(address=m.address, id=m.id) for m in req.mappings]
         failures = svc.modify_quic_mapping(action=action, quic_reals=quic_reals)
         return {"failures": failures}
@@ -632,7 +637,12 @@ def create_app(service: Any = None) -> FastAPI:
     def set_encap_src_ip(
         req: AddressRequest, svc: Any = Depends(get_service)
     ) -> dict[str, str]:
-        svc.set_src_ip_for_encap(address=req.address)
+        try:
+            svc.set_src_ip_for_encap(address=req.address)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid IP address: {req.address!r}"
+            ) from None
         return {"status": "set"}
 
     # --- LRU endpoints ----------------------------------------------------

@@ -2,7 +2,7 @@
 
 import time
 
-from conftest import add_backend, remove_backend, send_requests, setup_vip, teardown_vip
+from helpers import add_backend, remove_backend, send_requests, setup_vip, teardown_vip
 
 VIP = "10.200.0.46"
 

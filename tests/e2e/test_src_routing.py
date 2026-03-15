@@ -2,7 +2,8 @@
 
 import time
 
-from conftest import (
+import pytest
+from helpers import (
     add_backend,
     parse_metric_value,
     remove_backend,
@@ -13,6 +14,17 @@ from conftest import (
 
 VIP = "10.200.0.40"
 VIP6 = "fd00:200::40"
+SRC_ROUTING_FLAG = 1 << 4  # VipFlags.SRC_ROUTING — enables LPM source routing in BPF
+
+
+def _setup_src_routed_vip(api_client, address, port=80, protocol="tcp"):
+    """Create a VIP with SRC_ROUTING flag so BPF consults LPM maps."""
+    resp = api_client.post(
+        "/api/v1/vips",
+        json={"address": address, "port": port, "protocol": protocol, "flags": SRC_ROUTING_FLAG},
+    )
+    assert resp.status_code in (201, 409), f"setup_vip failed: {resp.status_code} {resp.text}"
+    return resp.json() if resp.status_code == 201 else None
 
 
 class TestSrcRoutingAPI:
@@ -112,7 +124,7 @@ class TestSrcRoutingTraffic:
     def test_src_routed_traffic_v4(
         self, api_client, backend_1_addr, backend_2_addr, backend_3_addr
     ):
-        setup_vip(api_client, VIP)
+        _setup_src_routed_vip(api_client, VIP)
         add_backend(api_client, VIP, backend_1_addr)
         add_backend(api_client, VIP, backend_2_addr)
         add_backend(api_client, VIP, backend_3_addr)
@@ -143,7 +155,7 @@ class TestSrcRoutingTraffic:
     def test_src_route_removal_restores_ch(
         self, api_client, backend_1_addr, backend_2_addr, backend_3_addr
     ):
-        setup_vip(api_client, VIP)
+        _setup_src_routed_vip(api_client, VIP)
         add_backend(api_client, VIP, backend_1_addr)
         add_backend(api_client, VIP, backend_2_addr)
         add_backend(api_client, VIP, backend_3_addr)
@@ -181,7 +193,7 @@ class TestSrcRoutingTraffic:
     def test_src_route_stats_increment(
         self, api_client, backend_1_addr, backend_3_addr
     ):
-        setup_vip(api_client, VIP)
+        _setup_src_routed_vip(api_client, VIP)
         add_backend(api_client, VIP, backend_1_addr)
         add_backend(api_client, VIP, backend_3_addr)
         time.sleep(2)

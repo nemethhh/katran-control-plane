@@ -17,5 +17,6 @@ WORKDIR /app
 
 COPY tests/e2e/scripts/backend-entrypoint.sh /app/scripts/backend-entrypoint.sh
 COPY tests/e2e/scripts/backend-server.py /app/scripts/backend-server.py
+COPY tests/e2e/scripts/hc-target-server.py /app/scripts/hc-target-server.py
 
 CMD ["/bin/bash"]

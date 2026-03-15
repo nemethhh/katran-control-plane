@@ -9,7 +9,7 @@ on:
 env:
   KATRAN_BPF_VERSION: "v1.0.0"
   KATRAN_BPF_REPO: "nemethhh/katran-bpf-builder"
-  KATRAN_BPF_VARIANT: "decap-ipip"
+  KATRAN_BPF_VARIANT: "full"
 
 jobs:
   lint:

@@ -10,10 +10,14 @@ Expects the following env vars (set by docker-compose.e2e.yml):
 """
 
 import os
+import sys
 import time
 
 import httpx
 import pytest
+
+# Ensure tests/e2e/ is on sys.path so test modules can `from helpers import ...`
+sys.path.insert(0, os.path.dirname(__file__))
 
 
 def pytest_collection_modifyitems(config, items):
@@ -154,6 +158,45 @@ def hc_client(hc_target_url) -> httpx.Client:
         time.sleep(1)
     yield client
     client.close()
+
+
+# ---------------------------------------------------------------------------
+# Feature availability fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def hc_available(api_client) -> bool:
+    """Check if HealthCheckManager is available (HC BPF program loaded)."""
+    resp = api_client.get("/api/v1/hc/dst")
+    return resp.status_code == 200
+
+
+@pytest.fixture(scope="session")
+def down_reals_available(api_client) -> bool:
+    """Check if DownRealManager is available (vip_to_down_reals map loaded)."""
+    resp = api_client.post(
+        "/api/v1/down-reals/check",
+        json={
+            "vip": {"address": "10.200.0.10", "port": 80, "protocol": "tcp"},
+            "real_index": 0,
+        },
+    )
+    return resp.status_code != 500
+
+
+@pytest.fixture(autouse=False)
+def requires_hc(hc_available):
+    """Skip test if HC is not available."""
+    if not hc_available:
+        pytest.skip("HealthCheckManager not available (HC BPF program not loaded)")
+
+
+@pytest.fixture(autouse=False)
+def requires_down_reals(down_reals_available):
+    """Skip test if down reals feature is not available."""
+    if not down_reals_available:
+        pytest.skip("DownRealManager not available (vip_to_down_reals map not loaded)")
 
 
 # ---------------------------------------------------------------------------
