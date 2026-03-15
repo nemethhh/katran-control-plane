@@ -6,6 +6,7 @@ index allocation, and state synchronization.
 """
 
 from ipaddress import IPv4Address, IPv6Address
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -372,3 +373,64 @@ class TestVipManagerThreadSafety:
         # Check vip_nums are unique
         vip_nums = [r[1] for r in results if r[0] == "success"]
         assert len(set(vip_nums)) == 10
+
+
+class TestVipManagerRemoveVipEdgeCases:
+    """Cover line 180: remove_vip raises ValueError when key=None and partial args."""
+
+    def test_remove_vip_partial_args_raises_value_error(self, vip_manager):
+        """remove_vip(address=...) without port and protocol raises ValueError."""
+        with pytest.raises(ValueError, match="Must provide either key or address/port/protocol"):
+            vip_manager.remove_vip(address="10.200.1.1")  # port and protocol missing
+
+
+class TestVipManagerGetVipEdgeCases:
+    """Cover line 232: get_vip returns None when key=None and some args missing."""
+
+    def test_get_vip_partial_args_returns_none(self, vip_manager):
+        """get_vip with partial address args returns None."""
+        result = vip_manager.get_vip(address="10.200.1.1")  # port and protocol missing
+
+        assert result is None
+
+
+class TestVipManagerSyncFromBpf:
+    """Cover lines 385-407: sync_from_bpf restores state from BPF vip_map."""
+
+    def test_sync_from_bpf_populates_vips_from_map(self, vip_manager, mock_vip_map):
+        """sync_from_bpf reads entries from BPF map and populates local state."""
+        from katran.core.types import VipKey, VipMeta
+
+        key = VipKey(IPv4Address("10.200.1.1"), 80, Protocol.TCP)
+        meta = VipMeta(flags=VipFlags.NONE, vip_num=5)
+        mock_vip_map.items = MagicMock(return_value=[(key, meta)])
+
+        vip_manager.sync_from_bpf()
+
+        assert vip_manager.get_vip_count() == 1
+        vip = vip_manager.get_vip(key=key)
+        assert vip is not None
+        assert vip.vip_num == 5
+
+    def test_sync_from_bpf_clears_existing_state(self, vip_manager, mock_vip_map):
+        """sync_from_bpf clears local state before loading from BPF."""
+        vip_manager.add_vip("10.200.1.1", 80, Protocol.TCP)
+        assert vip_manager.get_vip_count() == 1
+
+        mock_vip_map.items = MagicMock(return_value=[])
+        vip_manager.sync_from_bpf()
+
+        assert vip_manager.get_vip_count() == 0
+
+    def test_sync_from_bpf_reserves_vip_nums_in_allocator(self, vip_manager, mock_vip_map):
+        """sync_from_bpf marks vip_nums as allocated so they are not reused."""
+        from katran.core.types import VipKey, VipMeta
+
+        key = VipKey(IPv4Address("10.200.1.1"), 80, Protocol.TCP)
+        meta = VipMeta(flags=VipFlags.NONE, vip_num=7)
+        mock_vip_map.items = MagicMock(return_value=[(key, meta)])
+
+        vip_manager.sync_from_bpf()
+
+        # The allocator should have vip_num=7 reserved; next allocation gets 0 (first free)
+        assert vip_manager._vip_num_allocator.is_allocated(7)
