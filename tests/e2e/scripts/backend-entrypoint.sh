@@ -29,6 +29,11 @@ ip link set tunl0 up 2>/dev/null || true
 # (inner dst = VIP_ADDR, which must be a local address)
 ip addr add "${VIP_ADDR}/32" dev tunl0 2>/dev/null || true
 
+# Add extra VIP addresses (for multi-VIP test isolation)
+for extra_vip in ${EXTRA_VIP_ADDRS:-}; do
+    ip addr add "${extra_vip}/32" dev tunl0 2>/dev/null || true
+done
+
 # Disable reverse path filtering (otherwise kernel drops IPIP packets
 # because the source doesn't match the expected interface)
 sysctl -w net.ipv4.conf.all.rp_filter=0 > /dev/null 2>&1
@@ -58,6 +63,11 @@ if [ -n "${VIP_ADDR6:-}" ]; then
 
     # Add VIP6 address to ip6tnl0 so kernel accepts decapsulated IPv6 packets
     ip -6 addr add "${VIP_ADDR6}/128" dev ip6tnl0 nodad 2>/dev/null || true
+
+    # Add extra IPv6 VIP addresses
+    for extra_vip6 in ${EXTRA_VIP_ADDRS6:-}; do
+        ip -6 addr add "${extra_vip6}/128" dev ip6tnl0 nodad 2>/dev/null || true
+    done
 
     echo "  ip6tnl0 addresses: $(ip -6 addr show ip6tnl0 | grep inet6 | awk '{print $2}')"
 fi
