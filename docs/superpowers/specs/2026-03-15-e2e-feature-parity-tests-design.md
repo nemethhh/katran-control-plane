@@ -6,6 +6,41 @@
 
 ---
 
+## Prerequisites
+
+### Feature Manager Initialization in `KatranService.start()`
+
+The current `KatranService.start()` only calls `_open_maps()` and `_initialize_managers()`, which create `vip_manager` and `real_manager`. All feature managers (`_src_routing_manager`, `_quic_manager`, `_hc_manager`, `_lru_manager`, `_down_real_manager`, `_stats_manager`, `_decap_manager`) remain `None` after startup.
+
+**This must be implemented before E2E tests can run.** The implementation plan (task in Chunk 5 of the feature-parity plan) described wiring all managers into `start()` based on feature flags and available pinned maps. Without this wiring, every feature endpoint returns 500 errors.
+
+Required changes to `src/katran/service.py`:
+- In `start()`, after `_initialize_managers()`, open feature-specific maps (gated by `config.features` and map availability)
+- Instantiate feature managers with opened maps
+- Feature-gated maps that fail to open (not pinned) should log a warning and leave the manager as `None`, so the service still starts with core functionality
+
+### BPF Program Version
+
+All required BPF maps must exist in the `nemethhh/katran-bpf-builder` release. The `decap-ipip` variant at version `v1.0.0` (current CI setting) must include:
+- XDP maps: `lpm_src_v4`, `lpm_src_v6`, `decap_dst`, `server_id_map`, `pckt_srcs`, `reals_stats`, `lru_miss_stats`, `quic_stats_map`, `decap_vip_stats`, `server_id_stats`
+- TC-BPF maps: `hc_key_map`, `hc_reals_map`, `hc_ctrl_map`, `hc_pckt_srcs_map`, `hc_pckt_macs`, `hc_stats_map`, `per_hckey_stats`
+
+The LB entrypoint must verify that critical maps are actually pinned before starting the control plane. Add a verification step after pinning:
+```bash
+REQUIRED_MAPS="vip_map reals ch_rings stats ctl_array"
+for map in $REQUIRED_MAPS; do
+    if [ ! -f "$PIN_PATH/$map" ]; then
+        echo "FATAL: Required map $map not pinned"
+        exit 1
+    fi
+done
+echo "All required maps verified"
+```
+
+Feature maps that fail to pin are non-fatal (the service starts without those features).
+
+---
+
 ## Infrastructure Changes
 
 ### New Docker Containers
@@ -97,7 +132,7 @@ This lets traffic tests use unique VIP addresses per test file while backends ac
 
 Raw-socket IPIP capture + HTTP API.
 
-- **Capture thread:** Opens `AF_PACKET` socket on eth0. Filters IPIP packets (IP protocol 4). For each captured packet, parses outer IP header (src, dst) and inner IP header (src, dst, proto). Stores in a thread-safe list with timestamp.
+- **Capture thread:** Opens `AF_PACKET` socket on eth0. Filters IPIP packets (IP protocol 4 for IPv4-in-IPv4 and protocol 41 for IPv6-in-IPv4). For each captured packet, parses outer IP header (src, dst) and inner IP header (src, dst, proto). Stores in a thread-safe list with timestamp.
 - **HTTP server** (port 8080):
   - `GET /health` → `{"status": "healthy"}`
   - `GET /probes` → `{"probes": [{"outer_src": "...", "outer_dst": "...", "inner_src": "...", "inner_dst": "...", "proto": 6, "timestamp": 1234567890.0}, ...], "count": N}`
@@ -110,6 +145,7 @@ Raw-socket IPIP capture + HTTP API.
 Add endpoint for encap source IP verification:
 - `GET /tunnel-info` → Reports the outer source IP of the last IPIP-encapsulated packet received on tunl0.
 - Implementation: A background thread sniffs on `tunl0` via raw socket, recording the most recent outer source IP. The `/tunnel-info` endpoint returns `{"outer_src": "10.200.0.10", "last_seen": 1234567890.0}`.
+- Backend containers need `NET_RAW` capability added in docker-compose for raw socket access on tunl0.
 
 ### Test Client Environment (`docker-compose.e2e.yml`)
 
@@ -120,9 +156,19 @@ environment:
   - BACKEND_3_ADDR6=fd00:200::22
   - HC_TARGET_ADDR=10.200.0.30
   - HC_TARGET_ADDR6=fd00:200::30
+  - HC_TARGET_URL=http://hc-target:8080
+  - TEST_CLIENT_ADDR=10.200.0.100
+  - TEST_CLIENT_ADDR6=fd00:200::100
 ```
 
 Add `depends_on` for backend-3 and hc-target (service_healthy).
+
+All backend containers (1, 2, 3) need `EXTRA_VIP_ADDRS` and `EXTRA_VIP_ADDRS6` to accept traffic for all test VIPs:
+```yaml
+environment:
+  - EXTRA_VIP_ADDRS=10.200.0.40 10.200.0.41 10.200.0.42 10.200.0.43 10.200.0.44 10.200.0.45 10.200.0.46 10.200.0.47 10.200.0.48
+  - EXTRA_VIP_ADDRS6=fd00:200::40 fd00:200::41 fd00:200::42 fd00:200::43 fd00:200::44 fd00:200::45 fd00:200::46 fd00:200::47 fd00:200::48
+```
 
 ### CI (`ci.yml`)
 
@@ -134,8 +180,18 @@ No changes needed. BPF programs (including `healthchecking_ipip.bpf.o`) come fro
 
 ### conftest.py Additions
 
+**Note:** Helper functions (`send_request`, `send_requests`, `parse_metric_value`, `setup_vip`, etc.) currently exist as `_`-prefixed module-level functions in `test_traffic_forwarding.py`. These are consolidated into conftest as non-prefixed public functions usable by all test files. The existing test file can import from conftest or keep its local copies (avoid breaking existing tests).
+
 **New session-scoped fixtures:**
 ```python
+@pytest.fixture(scope="session")
+def test_client_addr() -> str:
+    return os.environ.get("TEST_CLIENT_ADDR", "10.200.0.100")
+
+@pytest.fixture(scope="session")
+def test_client_addr6() -> str:
+    return os.environ.get("TEST_CLIENT_ADDR6", "fd00:200::100")
+
 @pytest.fixture(scope="session")
 def backend_3_addr() -> str:
     return os.environ.get("BACKEND_3_ADDR", "10.200.0.22")
@@ -234,6 +290,31 @@ def parse_metric_value(content, metric_name, labels=None):
         pattern = rf"^{metric_name}\s+(\d+(?:\.\d+)?)$"
     match = re.search(pattern, content, re.MULTILINE)
     return float(match.group(1)) if match else None
+
+def send_udp_packets(addr, port, count=20, payload=b"test"):
+    """Send UDP datagrams to an address (for QUIC VIP tests)."""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        for _ in range(count):
+            sock.sendto(payload, (addr, port))
+    finally:
+        sock.close()
+```
+
+### Cleanup Pattern
+
+All traffic tests use try/finally blocks for cleanup, matching the existing pattern in `test_traffic_forwarding.py`:
+```python
+def test_example(self, api_client, vip_addr, backend_1_addr):
+    setup_vip(api_client, vip_addr, port=80)
+    add_backend(api_client, vip_addr, backend_1_addr, port=80)
+    time.sleep(2)
+    try:
+        # ... test assertions ...
+    finally:
+        remove_backend(api_client, vip_addr, backend_1_addr, port=80)
+        teardown_vip(api_client, vip_addr, port=80)
 ```
 
 ### VIP Address Allocation
@@ -305,13 +386,13 @@ Ordering within a file is managed by class grouping. Cross-file ordering is not 
 
 | Test | Endpoint | Assertion |
 |------|----------|-----------|
-| test_add_src_route_v4 | POST /api/v1/src-routing/add `{srcs: ["10.200.0.0/24"], dst: "10.200.0.22"}` | 200, failures=0 |
-| test_add_src_route_v6 | POST /api/v1/src-routing/add `{srcs: ["fd00:200::/64"], dst: "fd00:200::22"}` | 200, failures=0 |
-| test_list_src_routes | GET /api/v1/src-routing after adding | response contains CIDR→dst mappings |
-| test_remove_src_route | POST /api/v1/src-routing/remove | 200, then list is empty |
-| test_clear_src_routes | POST /api/v1/src-routing/clear after adding multiple | 200, list returns empty |
-| test_add_multiple_cidrs_same_dst | add `["10.1.0.0/16", "10.2.0.0/16"]` → same dst | failures=0, both listed |
-| test_add_invalid_cidr | POST with `srcs: ["not-a-cidr"]` | 400 or failures=1 |
+| test_add_src_route_v4 | POST /api/v1/src-routing/add `{srcs: ["10.200.0.0/24"], dst: "10.200.0.22"}` | 200, `{"failures": 0}` |
+| test_add_src_route_v6 | POST /api/v1/src-routing/add `{srcs: ["fd00:200::/64"], dst: "fd00:200::22"}` | 200, `{"failures": 0}` |
+| test_list_src_routes | GET /api/v1/src-routing after adding | response dict contains CIDR→dst mappings |
+| test_remove_src_route | POST /api/v1/src-routing/remove `{srcs: ["10.200.0.0/24"], dst: "10.200.0.22"}` (dst required by SrcRoutingRequest model, service uses only srcs) | 200, then GET list is empty |
+| test_clear_src_routes | POST /api/v1/src-routing/clear after adding multiple | 200, `{"status": "cleared"}`, list returns empty |
+| test_add_multiple_cidrs_same_dst | add `{srcs: ["10.1.0.0/16", "10.2.0.0/16"], dst: "10.200.0.22"}` | `{"failures": 0}`, both listed |
+| test_add_invalid_cidr | POST with `{srcs: ["not-a-cidr"], dst: "10.200.0.22"}` | 400 or `{"failures": 1}` |
 
 **Traffic tests (class TestSrcRoutingTraffic):**
 
@@ -362,7 +443,7 @@ Ordering within a file is managed by class grouping. Cross-file ordering is not 
 
 | Test | Setup | Assertion |
 |------|-------|-----------|
-| test_quic_stats_after_udp_traffic | VIP 10.200.0.42:443/udp with backends. Send UDP packets to VIP. | GET /api/v1/stats/quic returns non-zero `ch_routed` |
+| test_quic_stats_after_udp_traffic | VIP 10.200.0.42:443/udp with backends. Send UDP packets via `socket.socket(AF_INET, SOCK_DGRAM)` to `10.200.0.42:443` (httpx uses TCP, so raw UDP socket is required). Send 20+ datagrams. | GET /api/v1/stats/quic returns non-zero `ch_routed` |
 | test_quic_prometheus_metrics | After UDP traffic | /metrics contains `katran_quic_ch_routed_total >= 0` |
 
 Note: Full CID-routed traffic tests require crafting QUIC packets with embedded server IDs in the connection ID. Test-client would need to send raw UDP packets with specific CID format. If the BPF program supports this, include; otherwise document as future work.
@@ -398,7 +479,24 @@ Note: Full CID-routed traffic tests require crafting QUIC packets with embedded 
 | test_hc_stats_after_probes | After probes are generated. | GET /api/v1/hc/stats returns `packets_processed > 0`. |
 | test_hc_prometheus_metrics | After probes. | /metrics contains `katran_hc_packets_processed_total > 0`. |
 
-HC probe generation: The HC BPF program runs on TC egress. When the kernel sends a packet with a socket mark (SO_MARK) matching a configured somark, the TC program intercepts it and rewrites src/dst to generate the HC probe. To trigger this, the control plane or a helper process on the LB container needs to send a packet with the appropriate SO_MARK. Alternatively, configure the HC program and verify via stats that it processed packets (if the LB container generates any marked traffic internally). The exact trigger mechanism depends on the BPF program behavior — if the HC BPF program scans all egress packets, normal API traffic may trigger stats.
+**HC probe trigger mechanism:** The HC BPF program runs on TC egress. When the kernel sends a packet with a socket mark (`SO_MARK`) matching a configured somark, the TC program intercepts it and rewrites src/dst to generate the HC probe.
+
+To trigger probes, add a helper script `hc-probe-trigger.py` to the LB container. The test calls it via `docker exec` or an API endpoint:
+```python
+import socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_MARK, somark)  # e.g., 100
+sock.sendto(b"hc", (hc_target_addr, 9999))  # Any payload; TC-BPF intercepts
+sock.close()
+```
+
+Alternatively, add a `/api/v1/hc/trigger` test-only endpoint to `run_control_plane.py` that sends a marked packet. This keeps the trigger within the LB container where `SO_MARK` can be set (test-client cannot set marks on packets that traverse the Docker bridge).
+
+The test flow:
+1. Configure HC fully (src IP, MACs, key, dst, interface)
+2. Trigger marked packet from LB container
+3. Poll hc-target `/probes` (up to 15s)
+4. Verify probe arrived
 
 ---
 
@@ -410,13 +508,13 @@ Each test creates a VIP, adds backends, sends traffic, then exercises LRU endpoi
 
 | Test | Flow | Assertion |
 |------|------|-----------|
-| test_lru_list_after_traffic | Setup VIP+backend, send 10 requests, POST /api/v1/lru/list `{vip, limit: 100}` | `entries > 0` |
-| test_lru_search_after_traffic | Send traffic, POST /api/v1/lru/search `{vip, src_ip: test_client_ip, src_port: 0}` | entries >= 0 (search may match) |
-| test_lru_search_no_match | POST search with src_ip that never sent traffic (e.g., "192.168.99.99") | `entries == 0` |
-| test_lru_delete_entry | List entries, pick one, POST /api/v1/lru/delete with its flow key | Response has deleted entries |
-| test_lru_purge_vip | Send traffic, POST /api/v1/lru/purge-vip | `deleted_count > 0` |
-| test_lru_purge_real | Send traffic, get backend's real_index, POST /api/v1/lru/purge-real `{vip, real_index}` | `deleted_count >= 0` |
-| test_lru_analyze | Send traffic, GET /api/v1/lru/analyze | `total_entries > 0`, `per_vip` has entry for the VIP |
+| test_lru_list_after_traffic | Setup VIP+backend, send 10 requests, POST /api/v1/lru/list `{vip: {address, port, protocol}, limit: 100}` (uses LruListRequest model) | `entries > 0` |
+| test_lru_search_after_traffic | Send traffic, POST /api/v1/lru/search `{vip: {...}, src_ip: test_client_addr, src_port: 0}`. Note: `src_port: 0` may not match real ephemeral ports; this tests the search endpoint works. If entries=0, the test verifies the response structure is valid. | Response has `entries` (int) and `error` (str) fields |
+| test_lru_search_no_match | POST search with `src_ip: "192.168.99.99"` (never sent traffic) | `entries == 0`, `error == ""` |
+| test_lru_delete_entry | List entries (if any), POST /api/v1/lru/delete `{vip: {...}, src_ip, src_port}` with values from list | Response has `deleted` field |
+| test_lru_purge_vip | Send traffic, POST /api/v1/lru/purge-vip `{vip: {address, port, protocol}, limit: 100}` (uses LruListRequest model, limit controls scan depth) | `deleted_count >= 0` (may be 0 if BPF program doesn't populate LRU for this traffic type) |
+| test_lru_purge_real | Send traffic, get backend's real_index, POST /api/v1/lru/purge-real `{vip: {...}, real_index: N}` (uses LruPurgeRealRequest model) | `deleted_count >= 0` |
+| test_lru_analyze | Send traffic, GET /api/v1/lru/analyze | Response has `total_entries` (int) and `per_vip` (dict) |
 
 ---
 
@@ -436,7 +534,7 @@ Each test creates a VIP, adds backends, sends traffic, then exercises LRU endpoi
 
 | Test | Setup | Assertion |
 |------|-------|-----------|
-| test_down_real_traffic_avoidance | VIP with backend-1+2. Send traffic → both may receive. Mark backend-1's real_index as down. Send traffic → all from backend-2. Unmark. Send traffic → distribution returns. | Traffic shifts away from downed real. |
+| test_down_real_traffic_avoidance | VIP with backend-1+2. Send traffic → both may receive. Mark backend-1's real_index as down. Send traffic → all from backend-2. Unmark. Send traffic → distribution returns. | Traffic shifts away from downed real. **Note:** This test depends on the XDP BPF program consulting `VipToDownRealsMap` during packet processing. If the loaded BPF version does not check this map, the test should assert that the API operations succeed (status codes) even if traffic still reaches the downed real, and mark the traffic assertion as `xfail` with reason "BPF program may not support down_reals". |
 
 ---
 
@@ -509,7 +607,7 @@ Module-scoped fixture: Creates VIP 10.200.0.48:80/tcp, adds backend-1, sends 20 
 
 ## File Summary
 
-### New Files (12)
+### New Files (13)
 
 ```
 tests/e2e/
@@ -524,6 +622,7 @@ tests/e2e/
     test_feature_flags.py
     test_prometheus_extended.py
     scripts/hc-target-server.py
+    scripts/hc-probe-trigger.py   # SO_MARK-tagged UDP sender for HC probe generation
     Dockerfile.hc-target          (optional — may reuse Dockerfile.backend)
 ```
 
