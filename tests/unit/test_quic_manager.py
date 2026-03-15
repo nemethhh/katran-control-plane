@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from katran.core.constants import ModifyAction
-from katran.core.exceptions import QuicMappingError
 from katran.core.types import QuicReal
 
 

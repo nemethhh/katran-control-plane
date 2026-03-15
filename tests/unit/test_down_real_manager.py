@@ -35,22 +35,24 @@ class TestDownRealManager:
     def test_add_down_real_creates_inner_map(self, manager, mock_down_reals_map):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
         mock_down_reals_map.get.return_value = None
-        with patch("katran.lb.down_real_manager.bpf_map_create", return_value=200):
-            with patch("katran.lb.down_real_manager._bpf_syscall", return_value=0):
-                with patch("katran.lb.down_real_manager.os.close"):
-                    manager.add_down_real(vip, 5)
+        with (
+            patch("katran.lb.down_real_manager.bpf_map_create", return_value=200),
+            patch("katran.lb.down_real_manager._bpf_syscall", return_value=0),
+            patch("katran.lb.down_real_manager.os.close"),
+        ):
+            manager.add_down_real(vip, 5)
 
     def test_add_down_real_reuses_existing_inner_map(
         self, manager, mock_down_reals_map
     ):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
         mock_down_reals_map.get.return_value = 42  # existing map ID
-        with patch(
-            "katran.lb.down_real_manager.bpf_map_get_fd_by_id", return_value=200
+        with (
+            patch("katran.lb.down_real_manager.bpf_map_get_fd_by_id", return_value=200),
+            patch("katran.lb.down_real_manager._bpf_syscall", return_value=0),
+            patch("katran.lb.down_real_manager.os.close"),
         ):
-            with patch("katran.lb.down_real_manager._bpf_syscall", return_value=0):
-                with patch("katran.lb.down_real_manager.os.close"):
-                    manager.add_down_real(vip, 5)
+            manager.add_down_real(vip, 5)
 
     def test_check_real_not_found(self, manager, mock_down_reals_map):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
@@ -60,14 +62,12 @@ class TestDownRealManager:
     def test_check_real_found(self, manager, mock_down_reals_map):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
         mock_down_reals_map.get.return_value = 42
-        with patch(
-            "katran.lb.down_real_manager.bpf_map_get_fd_by_id", return_value=200
+        with (
+            patch("katran.lb.down_real_manager.bpf_map_get_fd_by_id", return_value=200),
+            patch("katran.lb.down_real_manager._bpf_syscall", return_value=0),  # lookup succeeds
+            patch("katran.lb.down_real_manager.os.close"),
         ):
-            with patch(
-                "katran.lb.down_real_manager._bpf_syscall", return_value=0
-            ):  # lookup succeeds
-                with patch("katran.lb.down_real_manager.os.close"):
-                    assert manager.check_real(vip, 5) is True
+            assert manager.check_real(vip, 5) is True
 
     def test_check_real_inner_fd_fails(self, manager, mock_down_reals_map):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
@@ -92,12 +92,12 @@ class TestDownRealManager:
     def test_remove_real_with_inner_map(self, manager, mock_down_reals_map):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
         mock_down_reals_map.get.return_value = 42
-        with patch(
-            "katran.lb.down_real_manager.bpf_map_get_fd_by_id", return_value=200
+        with (
+            patch("katran.lb.down_real_manager.bpf_map_get_fd_by_id", return_value=200),
+            patch("katran.lb.down_real_manager._bpf_syscall", return_value=0),
+            patch("katran.lb.down_real_manager.os.close"),
         ):
-            with patch("katran.lb.down_real_manager._bpf_syscall", return_value=0):
-                with patch("katran.lb.down_real_manager.os.close"):
-                    manager.remove_real(vip, 5)
+            manager.remove_real(vip, 5)
 
     def test_remove_real_inner_fd_fails(self, manager, mock_down_reals_map):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
@@ -130,12 +130,12 @@ class TestDownRealManager:
     ):
         vip = VipKey(address=IPv4Address("10.0.0.1"), port=80, protocol=Protocol.TCP)
         mock_down_reals_map.get.return_value = None
-        with patch("katran.lb.down_real_manager.bpf_map_create", return_value=200):
-            with patch(
-                "katran.lb.down_real_manager._bpf_syscall", return_value=-1
-            ):
-                with patch("katran.lb.down_real_manager.os.close") as mock_close:
-                    # _write_inner calls _bpf_syscall which returns -1 but doesn't
-                    # raise; the fd should still be closed in the finally block
-                    manager.add_down_real(vip, 5)
-                    mock_close.assert_called_once_with(200)
+        with (
+            patch("katran.lb.down_real_manager.bpf_map_create", return_value=200),
+            patch("katran.lb.down_real_manager._bpf_syscall", return_value=-1),
+            patch("katran.lb.down_real_manager.os.close") as mock_close,
+        ):
+            # _write_inner calls _bpf_syscall which returns -1 but doesn't
+            # raise; the fd should still be closed in the finally block
+            manager.add_down_real(vip, 5)
+            mock_close.assert_called_once_with(200)

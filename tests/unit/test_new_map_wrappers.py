@@ -3,9 +3,7 @@
 import struct
 from ipaddress import IPv4Address, IPv6Address
 
-import pytest
-
-from katran.core.types import V4LpmKey, V6LpmKey, RealDefinition, HcRealDefinition, HcMac
+from katran.core.types import HcMac, HcRealDefinition, RealDefinition, V4LpmKey, V6LpmKey
 
 
 class TestLpmSrcV4MapSerialization:

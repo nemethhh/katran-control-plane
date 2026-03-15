@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from ipaddress import IPv4Network, IPv6Network, ip_network
+from ipaddress import IPv4Network, ip_network
 from threading import RLock
 from typing import TYPE_CHECKING
 
@@ -56,15 +56,15 @@ class SrcRoutingManager:
                 real_index = self._real_manager.increase_ref_count(dst)
 
                 if isinstance(network, IPv4Network):
-                    lpm_key = V4LpmKey(
+                    v4_key = V4LpmKey(
                         prefixlen=network.prefixlen, addr=str(network.network_address)
                     )
-                    self._v4_map.set(lpm_key, real_index)
+                    self._v4_map.set(v4_key, real_index)
                 else:
-                    lpm_key = V6LpmKey(
+                    v6_key = V6LpmKey(
                         prefixlen=network.prefixlen, addr=str(network.network_address)
                     )
-                    self._v6_map.set(lpm_key, real_index)
+                    self._v6_map.set(v6_key, real_index)
 
                 self._lpm_mapping[key_tuple] = real_index
                 self._lpm_dst[key_tuple] = dst
@@ -87,15 +87,15 @@ class SrcRoutingManager:
                 self._real_manager.decrease_ref_count(dst)
 
                 if isinstance(network, IPv4Network):
-                    lpm_key = V4LpmKey(
+                    v4_key = V4LpmKey(
                         prefixlen=network.prefixlen, addr=str(network.network_address)
                     )
-                    self._v4_map.delete(lpm_key)
+                    self._v4_map.delete(v4_key)
                 else:
-                    lpm_key = V6LpmKey(
+                    v6_key = V6LpmKey(
                         prefixlen=network.prefixlen, addr=str(network.network_address)
                     )
-                    self._v6_map.delete(lpm_key)
+                    self._v6_map.delete(v6_key)
 
                 del self._lpm_mapping[key_tuple]
                 del self._lpm_dst[key_tuple]

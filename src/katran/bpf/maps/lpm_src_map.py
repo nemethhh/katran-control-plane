@@ -10,7 +10,7 @@ import struct
 
 from katran.bpf.map_manager import BpfMap
 from katran.core.constants import MAX_LPM_SRC
-from katran.core.types import V4LpmKey, V4_LPM_KEY_SIZE, V6LpmKey, V6_LPM_KEY_SIZE
+from katran.core.types import V4_LPM_KEY_SIZE, V6_LPM_KEY_SIZE, V4LpmKey, V6LpmKey
 
 
 class LpmSrcV4Map(BpfMap[V4LpmKey, int]):

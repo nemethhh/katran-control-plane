@@ -2,13 +2,11 @@
 
 import time
 
-import pytest
 from helpers import (
     add_backend,
     parse_metric_value,
     remove_backend,
     send_requests,
-    setup_vip,
     teardown_vip,
 )
 

@@ -2,6 +2,8 @@
 Unit tests for BPF map manager and index allocator.
 """
 
+import ctypes
+
 import pytest
 
 from katran.bpf.map_manager import BpfMapType, BpfMapUpdateFlags, IndexAllocator
@@ -143,9 +145,6 @@ class TestBpfMapUpdateFlags:
         assert BpfMapUpdateFlags.ANY == 0
         assert BpfMapUpdateFlags.NOEXIST == 1
         assert BpfMapUpdateFlags.EXIST == 2
-
-
-import ctypes
 
 
 class TestBpfMapCreate:

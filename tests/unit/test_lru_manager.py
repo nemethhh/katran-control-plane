@@ -71,7 +71,7 @@ class TestLruManager:
             for i in range(10)
         ]
         mock_lru.items.return_value = flows
-        result = manager.list(vip, limit=3)
+        result = manager.list_entries(vip, limit=3)
         assert len(result.entries) == 3
 
     def test_list_returns_all_when_under_limit(self, manager, mock_lru):
@@ -90,7 +90,7 @@ class TestLruManager:
             for i in range(2)
         ]
         mock_lru.items.return_value = flows
-        result = manager.list(vip, limit=100)
+        result = manager.list_entries(vip, limit=100)
         assert len(result.entries) == 2
 
     def test_delete(self, manager, mock_lru):

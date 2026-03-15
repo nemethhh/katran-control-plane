@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from katran.core.constants import MAX_VIPS, StatsCounterIndex
+from katran.core.constants import StatsCounterIndex
 from katran.core.types import HealthCheckProgStats, LbStats, QuicPacketStats
 from katran.lb.stats_manager import StatsManager
 
@@ -46,27 +46,27 @@ class TestStatsManager:
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.XDP_TOTAL_CNTR)
 
     def test_get_xdp_tx_stats(self, manager, mock_stats_map):
-        result = manager.get_xdp_tx_stats()
+        manager.get_xdp_tx_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.XDP_TX_CNTR)
 
     def test_get_xdp_drop_stats(self, manager, mock_stats_map):
-        result = manager.get_xdp_drop_stats()
+        manager.get_xdp_drop_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.XDP_DROP_CNTR)
 
     def test_get_xdp_pass_stats(self, manager, mock_stats_map):
-        result = manager.get_xdp_pass_stats()
+        manager.get_xdp_pass_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.XDP_PASS_CNTR)
 
     def test_get_ch_drop_stats(self, manager, mock_stats_map):
-        result = manager.get_ch_drop_stats()
+        manager.get_ch_drop_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.CH_DROP_STATS)
 
     def test_get_encap_fail_stats(self, manager, mock_stats_map):
-        result = manager.get_encap_fail_stats()
+        manager.get_encap_fail_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.ENCAP_FAIL_CNTR)
 
     def test_get_decap_stats(self, manager, mock_stats_map):
-        result = manager.get_decap_stats()
+        manager.get_decap_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.DECAP_CNTR)
 
     def test_get_real_stats_with_map(self, manager):
@@ -166,51 +166,51 @@ class TestStatsManager:
         assert manager._global_index(StatsCounterIndex.XDP_TOTAL_CNTR) == 512 + 16
 
     def test_get_src_routing_stats(self, manager, mock_stats_map):
-        result = manager.get_src_routing_stats()
+        manager.get_src_routing_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.LPM_SRC_CNTRS)
 
     def test_get_inline_decap_stats(self, manager, mock_stats_map):
-        result = manager.get_inline_decap_stats()
+        manager.get_inline_decap_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.REMOTE_ENCAP_CNTRS)
 
     def test_get_lru_miss_stats(self, manager, mock_stats_map):
-        result = manager.get_lru_miss_stats()
+        manager.get_lru_miss_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.LRU_MISS_CNTR)
 
     def test_get_new_conn_rate_stats(self, manager, mock_stats_map):
-        result = manager.get_new_conn_rate_stats()
+        manager.get_new_conn_rate_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.NEW_CONN_RATE_CNTR)
 
     def test_get_lru_fallback_stats(self, manager, mock_stats_map):
-        result = manager.get_lru_fallback_stats()
+        manager.get_lru_fallback_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.FALLBACK_LRU_CNTR)
 
     def test_get_global_lru_stats(self, manager, mock_stats_map):
-        result = manager.get_global_lru_stats()
+        manager.get_global_lru_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.GLOBAL_LRU_CNTR)
 
     def test_get_icmp_toobig_stats(self, manager, mock_stats_map):
-        result = manager.get_icmp_toobig_stats()
+        manager.get_icmp_toobig_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.ICMP_TOOBIG_CNTRS)
 
     def test_get_icmp_ptb_v4_stats(self, manager, mock_stats_map):
-        result = manager.get_icmp_ptb_v4_stats()
+        manager.get_icmp_ptb_v4_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.ICMP_PTB_V4_STATS)
 
     def test_get_icmp_ptb_v6_stats(self, manager, mock_stats_map):
-        result = manager.get_icmp_ptb_v6_stats()
+        manager.get_icmp_ptb_v6_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.ICMP_PTB_V6_STATS)
 
     def test_get_xpop_decap_stats(self, manager, mock_stats_map):
-        result = manager.get_xpop_decap_stats()
+        manager.get_xpop_decap_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.XPOP_DECAP_SUCCESSFUL)
 
     def test_get_udp_flow_migration_stats(self, manager, mock_stats_map):
-        result = manager.get_udp_flow_migration_stats()
+        manager.get_udp_flow_migration_stats()
         mock_stats_map.get.assert_called_with(
             512 + StatsCounterIndex.UDP_FLOW_MIGRATION_STATS
         )
 
     def test_get_quic_icmp_stats(self, manager, mock_stats_map):
-        result = manager.get_quic_icmp_stats()
+        manager.get_quic_icmp_stats()
         mock_stats_map.get.assert_called_with(512 + StatsCounterIndex.QUIC_ICMP_STATS)

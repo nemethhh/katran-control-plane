@@ -145,7 +145,7 @@ class LruManager:
                     )
         return LruEntries(entries=entries)
 
-    def list(self, dst_vip: VipKey, limit: int = 100) -> LruEntries:
+    def list_entries(self, dst_vip: VipKey, limit: int = 100) -> LruEntries:
         """List LRU entries for a VIP, up to the given limit."""
         entries: list[LruEntry] = []
         now_ns = time.time_ns()
@@ -184,14 +184,14 @@ class LruManager:
         src_addr = ip_address(src_ip)
         deleted: list[str] = []
         with self._lock:
-            for flow, value, cpu in self._iter_all_lru_entries():
+            for flow, _value, cpu in self._iter_all_lru_entries():
                 if (
                     self._matches_vip(flow, dst_vip)
                     and flow.src_addr == src_addr
                     and flow.src_port == src_port
+                    and self._delete_from_all(flow)
                 ):
-                    if self._delete_from_all(flow):
-                        deleted.append(f"cpu={cpu}")
+                    deleted.append(f"cpu={cpu}")
         return deleted
 
     def purge_vip(self, dst_vip: VipKey) -> PurgeResponse:
@@ -199,7 +199,7 @@ class LruManager:
         count = 0
         with self._lock:
             to_delete: list[FlowKey] = []
-            for flow, value, cpu in self._iter_all_lru_entries():
+            for flow, _value, _cpu in self._iter_all_lru_entries():
                 if self._matches_vip(flow, dst_vip):
                     to_delete.append(flow)
             for flow in to_delete:
@@ -212,7 +212,7 @@ class LruManager:
         count = 0
         with self._lock:
             to_delete: list[FlowKey] = []
-            for flow, value, cpu in self._iter_all_lru_entries():
+            for flow, value, _cpu in self._iter_all_lru_entries():
                 if self._matches_vip(flow, dst_vip) and value.pos == real_index:
                     to_delete.append(flow)
             for flow in to_delete:
@@ -225,7 +225,7 @@ class LruManager:
         now_ns = time.time_ns()
         analysis = LruAnalysis()
         with self._lock:
-            for flow, value, cpu in self._iter_all_lru_entries():
+            for flow, value, _cpu in self._iter_all_lru_entries():
                 analysis.total_entries += 1
                 vip_str = f"{flow.dst_addr}:{flow.dst_port}/{flow.protocol}"
                 if vip_str not in analysis.per_vip:

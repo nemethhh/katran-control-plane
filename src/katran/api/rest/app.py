@@ -11,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 import os
 from ipaddress import ip_address
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
@@ -411,7 +411,7 @@ def create_app(service: Any = None) -> FastAPI:
 
     @app.get("/api/v1/src-routing")
     def get_src_routing(svc: Any = Depends(get_service)) -> dict[str, str]:
-        return svc.get_src_routing_rules()
+        return cast(dict[str, str], svc.get_src_routing_rules())
 
     @app.post("/api/v1/src-routing/remove")
     def remove_src_routing(
@@ -443,7 +443,7 @@ def create_app(service: Any = None) -> FastAPI:
 
     @app.get("/api/v1/decap/dst")
     def get_decap_dsts(svc: Any = Depends(get_service)) -> list[str]:
-        return svc.get_decap_dsts()
+        return cast(list[str], svc.get_decap_dsts())
 
     # --- QUIC endpoints ---------------------------------------------------
 
@@ -499,7 +499,7 @@ def create_app(service: Any = None) -> FastAPI:
 
     @app.get("/api/v1/hc/dst")
     def get_hc_dsts(svc: Any = Depends(get_service)) -> dict[int, str]:
-        return svc.get_hc_dsts()
+        return cast(dict[int, str], svc.get_hc_dsts())
 
     @app.post("/api/v1/hc/key/add")
     def add_hc_key(
@@ -610,7 +610,7 @@ def create_app(service: Any = None) -> FastAPI:
 
     @app.get("/api/v1/stats/global")
     def get_global_stats(svc: Any = Depends(get_service)) -> dict[str, Any]:
-        return svc.get_all_global_stats()
+        return cast(dict[str, Any], svc.get_all_global_stats())
 
     @app.get("/api/v1/stats/quic")
     def get_quic_stats(svc: Any = Depends(get_service)) -> dict[str, int]:
@@ -624,7 +624,7 @@ def create_app(service: Any = None) -> FastAPI:
 
     @app.get("/api/v1/stats/per-cpu")
     def get_per_cpu_stats(svc: Any = Depends(get_service)) -> list[int]:
-        return svc.get_per_core_packets_stats()
+        return cast(list[int], svc.get_per_core_packets_stats())
 
     # --- Features endpoint ------------------------------------------------
 

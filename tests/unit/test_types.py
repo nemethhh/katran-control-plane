@@ -24,12 +24,7 @@ from katran.core.types import (
     HcRealDefinition,
     HealthCheckProgStats,
     LbStats,
-    LruAnalysis,
-    LruEntries,
-    LruEntry,
-    PurgeResponse,
     QuicPacketStats,
-    QuicReal,
     Real,
     RealDefinition,
     RealPosLru,
@@ -37,7 +32,6 @@ from katran.core.types import (
     V6LpmKey,
     Vip,
     VipKey,
-    VipLruStats,
     VipMeta,
 )
 

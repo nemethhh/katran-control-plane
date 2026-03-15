@@ -60,7 +60,7 @@ integration-test-debug:
 # Lint code
 lint:
 	$(VENV)/ruff check src/ tests/
-	$(VENV)/mypy src/
+	$(PYTHON) -m mypy src/
 
 # Format code
 format:
