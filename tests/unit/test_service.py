@@ -289,3 +289,76 @@ class TestServiceDelegation:
         with pytest.raises(KatranError, match="not available"):
             key = VipKey(IPv4Address("10.0.0.1"), 80, Protocol.TCP)
             svc.add_down_real(key, real_index=1)
+
+
+class TestServiceMoreDelegation:
+    """Additional delegation tests to cover LRU, down_real, and stats methods."""
+
+    def test_remove_down_real_delegates_to_down_real_manager(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._down_real_manager = MagicMock()
+        key = VipKey(IPv4Address("10.0.0.1"), 80, Protocol.TCP)
+
+        svc.remove_down_real(key, real_index=1)
+
+        svc._down_real_manager.remove_real.assert_called_once_with(key, 1)
+
+    def test_check_down_real_delegates_to_down_real_manager(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._down_real_manager = MagicMock()
+        svc._down_real_manager.check_real.return_value = True
+        key = VipKey(IPv4Address("10.0.0.1"), 80, Protocol.TCP)
+
+        result = svc.check_down_real(key, real_index=1)
+
+        assert result is True
+        svc._down_real_manager.check_real.assert_called_once_with(key, 1)
+
+    def test_remove_down_reals_vip_delegates_to_down_real_manager(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._down_real_manager = MagicMock()
+        key = VipKey(IPv4Address("10.0.0.1"), 80, Protocol.TCP)
+
+        svc.remove_down_reals_vip(key)
+
+        svc._down_real_manager.remove_vip.assert_called_once_with(key)
+
+    def test_get_quic_packet_stats_delegates_to_stats_manager(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._stats_manager = MagicMock()
+
+        svc.get_quic_packet_stats()
+
+        svc._stats_manager.get_quic_packet_stats.assert_called_once()
+
+    def test_get_per_core_packets_stats_delegates(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._stats_manager = MagicMock()
+        svc._stats_manager.get_per_core_packets_stats.return_value = [100, 200]
+
+        result = svc.get_per_core_packets_stats()
+
+        assert result == [100, 200]
+
+    def test_lru_search_raises_when_lru_manager_none(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._lru_manager = None
+        key = VipKey(IPv4Address("10.0.0.1"), 80, Protocol.TCP)
+
+        with pytest.raises(KatranError, match="not available"):
+            svc.lru_search(key, "192.168.0.1", 12345)
+
+    def test_lru_list_raises_when_lru_manager_none(self, config, mock_maps):
+        svc = KatranService(config)
+        svc.start()
+        svc._lru_manager = None
+        key = VipKey(IPv4Address("10.0.0.1"), 80, Protocol.TCP)
+
+        with pytest.raises(KatranError, match="not available"):
+            svc.lru_list(key)

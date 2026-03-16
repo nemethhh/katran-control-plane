@@ -318,3 +318,101 @@ class TestChRingsMapEdgeCases:
             # All positions changed from 0 to non-zero
             assert changed == 3
             assert written == 3
+
+
+class TestChRingsMapAdditionalMethods:
+    """Tests for lookup_ring_position, clear_ring, get_ring_stats, validate_ring, write_ring_batch."""
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_lookup_ring_position_returns_value(self, mock_set, mock_get, mock_open):
+        mock_get.return_value = 42
+
+        with ChRingsMap("/tmp", ring_size=3) as rings:
+            result = rings.lookup_ring_position(vip_num=0, position=1)
+
+        assert result == 42
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_lookup_ring_position_returns_zero_when_not_found(self, mock_set, mock_get, mock_open):
+        mock_get.return_value = None
+
+        with ChRingsMap("/tmp", ring_size=3) as rings:
+            result = rings.lookup_ring_position(vip_num=0, position=0)
+
+        assert result == 0
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_get_ring_index_adds_base_offset(self, mock_set, mock_get, mock_open):
+        with ChRingsMap("/tmp", ring_size=5) as rings:
+            # vip 1 base = 1 * 5 = 5, position 2 → index 7
+            assert rings.get_ring_index(vip_num=1, position=2) == 7
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_clear_ring_writes_zeros(self, mock_set, mock_get, mock_open):
+        mock_get.return_value = 99  # simulate existing non-zero entries
+
+        with ChRingsMap("/tmp", ring_size=3) as rings:
+            rings.clear_ring(vip_num=0)
+
+        # set() should be called 3 times with value 0
+        assert mock_set.call_count == 3
+        for call_args in mock_set.call_args_list:
+            assert call_args[0][1] == 0
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_get_ring_stats_counts_distribution(self, mock_set, mock_get, mock_open):
+        ring = [1, 2, 1, 3, 2, 1]
+        mock_get.side_effect = lambda key: ring[key % len(ring)]
+
+        with ChRingsMap("/tmp", ring_size=6) as rings:
+            stats = rings.get_ring_stats(vip_num=0)
+
+        assert stats[1] == 3
+        assert stats[2] == 2
+        assert stats[3] == 1
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_validate_ring_no_errors_when_valid(self, mock_set, mock_get, mock_open):
+        ring = [1, 2, 1, 3, 2, 1]
+        mock_get.side_effect = lambda key: ring[key % len(ring)]
+
+        with ChRingsMap("/tmp", ring_size=6) as rings:
+            errors = rings.validate_ring(vip_num=0, expected_reals={1, 2, 3})
+
+        assert errors == []
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_validate_ring_detects_invalid_entries(self, mock_set, mock_get, mock_open):
+        ring = [1, 99, 1]  # 99 is not expected
+        mock_get.side_effect = lambda key: ring[key % len(ring)]
+
+        with ChRingsMap("/tmp", ring_size=3) as rings:
+            errors = rings.validate_ring(vip_num=0, expected_reals={1})
+
+        assert len(errors) > 0
+
+    @patch("katran.bpf.map_manager.BpfMap.open")
+    @patch("katran.bpf.map_manager.BpfMap.get")
+    @patch("katran.bpf.map_manager.BpfMap.set")
+    def test_write_ring_batch_delegates_to_write_ring(self, mock_set, mock_get, mock_open):
+        mock_get.return_value = 0  # Old ring is all zeros
+
+        with ChRingsMap("/tmp", ring_size=3) as rings:
+            rings.write_ring_batch(vip_num=0, ring=[1, 2, 3])
+
+        # write_ring_batch calls write_ring, which should call set for changed positions
+        assert mock_set.call_count == 3
